@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ComposePro Viewfinder Prototype</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
+
+        body {
+            background-color: #0F0F11;
+            color: white;
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 40px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 40px;
+        }
+
+        h1 { margin: 0; font-size: 24px; font-weight: 500; letter-spacing: -0.5px; }
+        p { color: #888; max-width: 600px; text-align: center; margin-top: -30px; line-height: 1.5; }
+
+        .container {
+            display: flex;
+            gap: 40px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        /* Mobile Device Frame */
+        .device {
+            width: 375px;
+            height: 812px;
+            background-color: #000;
+            border-radius: 40px;
+            overflow: hidden;
+            position: relative;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+            border: 8px solid #222;
+        }
+
+        /* Simulated Camera Feed */
+        .camera-feed {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-image: url('https://images.unsplash.com/photo-1493246507139-91e8fad9978e?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80');
+            background-size: cover;
+            background-position: center;
+            z-index: 1;
+        }
+
+        /* Top Toolbar */
+        .top-toolbar {
+            position: absolute;
+            top: 48px; left: 24px; right: 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 10;
+        }
+        .icon {
+            width: 24px; height: 24px;
+            border: 1.5px solid white;
+            border-radius: 50%;
+            display: flex; justify-content: center; align-items: center;
+            font-size: 12px; font-weight: bold;
+        }
+
+        /* AR Coaching Tooltip */
+        .tooltip {
+            position: absolute;
+            top: 100px; left: 24px;
+            background: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            padding: 12px 20px;
+            border-radius: 20px;
+            font-size: 16px;
+            font-weight: 500;
+            letter-spacing: 0.5px;
+            z-index: 10;
+            border: 1px solid rgba(255,255,255,0.1);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        /* Focus Brackets */
+        .brackets {
+            position: absolute;
+            top: 25%; bottom: 35%; left: 40px; right: 40px;
+            z-index: 5;
+            transition: all 0.3s ease;
+        }
+        .bracket-tl, .bracket-tr, .bracket-bl, .bracket-br {
+            position: absolute;
+            width: 40px; height: 40px;
+            border-color: rgba(255,255,255,0.6);
+            border-style: solid;
+            border-width: 0;
+            transition: border-color 0.3s ease;
+        }
+        .bracket-tl { top: 0; left: 0; border-top-width: 2px; border-left-width: 2px; }
+        .bracket-tr { top: 0; right: 0; border-top-width: 2px; border-right-width: 2px; }
+        .bracket-bl { bottom: 0; left: 0; border-bottom-width: 2px; border-left-width: 2px; }
+        .bracket-br { bottom: 0; right: 0; border-bottom-width: 2px; border-right-width: 2px; }
+
+        /* Horizon Leveler */
+        .horizon {
+            position: absolute;
+            left: 0; right: 0;
+            height: 1px;
+            background-color: rgba(255,255,255,0.5);
+            z-index: 5;
+            transition: all 0.3s ease;
+        }
+
+        /* Bottom Control Panel */
+        .bottom-panel {
+            position: absolute;
+            bottom: 24px; left: 16px; right: 16px;
+            height: 160px;
+            background: rgba(20, 20, 25, 0.65);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-radius: 32px;
+            border: 1px solid rgba(255,255,255,0.1);
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-end;
+            padding-bottom: 24px;
+        }
+
+        .zoom-controls {
+            display: flex;
+            gap: 32px;
+            margin-bottom: 24px;
+            font-size: 14px;
+            font-weight: 700;
+        }
+        .zoom-controls span { opacity: 0.6; font-weight: 400; }
+        .zoom-controls span.active { opacity: 1; font-weight: 700; }
+
+        .shutter {
+            width: 72px; height: 72px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, rgba(255,255,255,0.9) 0%, rgba(200,200,200,0.6) 100%);
+            box-shadow: inset 0 0 10px rgba(255,255,255,0.5), 0 4px 20px rgba(0,0,0,0.2);
+            border: 2px solid rgba(255,255,255,0.8);
+            transition: transform 0.1s ease;
+        }
+
+        /* ==================================
+           VARIANT A: IDLE
+           ================================== */
+        #variant-a .horizon { top: 48%; transform: rotate(-2deg); }
+
+        /* ==================================
+           VARIANT B: SCANNING / GUIDANCE
+           ================================== */
+        #variant-b .horizon { top: 49%; transform: rotate(-1deg); }
+        #variant-b .tooltip { opacity: 1; }
+        @keyframes pulse { 0% { opacity: 0.4; } 50% { opacity: 1; } 100% { opacity: 0.4; } }
+        #variant-b .bracket-tl, #variant-b .bracket-tr, #variant-b .bracket-bl, #variant-b .bracket-br {
+            border-color: rgba(255,255,255,1);
+            animation: pulse 1.5s infinite;
+        }
+
+        /* ==================================
+           VARIANT C: LOCKED / SUCCESS
+           ================================== */
+        #variant-c .horizon { top: 50%; transform: rotate(0deg); background-color: #34C759; height: 2px; }
+        #variant-c .bracket-tl, #variant-c .bracket-tr, #variant-c .bracket-bl, #variant-c .bracket-br {
+            border-color: #34C759;
+            border-width: 3px;
+        }
+        #variant-c .tooltip { opacity: 1; color: #34C759; }
+        #variant-c .shutter { transform: scale(0.92); }
+
+    </style>
+</head>
+<body>
+
+    <h1>Component 2.1: Viewfinder</h1>
+    <p>HTML/CSS implementation based exactly on the PRD specifications. The fixes you select from the mismatch list will be applied to this baseline to finalize the Pro design.</p>
+
+    <div class="container">
+        
+        <!-- VARIANT A -->
+        <div class="device" id="variant-a">
+            <div class="camera-feed"></div>
+            
+            <div class="top-toolbar">
+                <div class="icon">⚡</div>
+                <div class="icon">i</div>
+                <div class="icon">✕</div>
+            </div>
+
+            <div class="brackets">
+                <div class="bracket-tl"></div><div class="bracket-tr"></div>
+                <div class="bracket-bl"></div><div class="bracket-br"></div>
+            </div>
+            
+            <div class="horizon"></div>
+
+            <div class="bottom-panel">
+                <div class="zoom-controls">
+                    <span>1x</span> <span class="active">2x</span> <span>3x</span>
+                </div>
+                <div class="shutter"></div>
+            </div>
+        </div>
+
+        <!-- VARIANT B -->
+        <div class="device" id="variant-b">
+            <div class="camera-feed" style="filter: brightness(0.9)"></div>
+            
+            <div class="top-toolbar">
+                <div class="icon">⚡</div><div class="icon">i</div><div class="icon">✕</div>
+            </div>
+
+            <div class="tooltip">Tilt down slightly</div>
+
+            <div class="brackets">
+                <div class="bracket-tl"></div><div class="bracket-tr"></div>
+                <div class="bracket-bl"></div><div class="bracket-br"></div>
+            </div>
+            
+            <div class="horizon"></div>
+
+            <div class="bottom-panel">
+                <div class="zoom-controls">
+                    <span>1x</span> <span class="active">2x</span> <span>3x</span>
+                </div>
+                <div class="shutter"></div>
+            </div>
+        </div>
+
+        <!-- VARIANT C -->
+        <div class="device" id="variant-c">
+            <div class="camera-feed"></div>
+            
+            <div class="top-toolbar">
+                <div class="icon">⚡</div><div class="icon">i</div><div class="icon">✕</div>
+            </div>
+
+            <div class="tooltip" style="border-color: rgba(52, 199, 89, 0.3)">Hold steady</div>
+
+            <div class="brackets">
+                <div class="bracket-tl"></div><div class="bracket-tr"></div>
+                <div class="bracket-bl"></div><div class="bracket-br"></div>
+            </div>
+            
+            <div class="horizon"></div>
+
+            <div class="bottom-panel">
+                <div class="zoom-controls">
+                    <span>1x</span> <span class="active">2x</span> <span>3x</span>
+                </div>
+                <div class="shutter"></div>
+            </div>
+        </div>
+
+    </div>
+
+</body>
+</html>

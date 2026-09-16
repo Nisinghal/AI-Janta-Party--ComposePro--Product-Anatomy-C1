@@ -1,0 +1,10 @@
+- `[/]` Initialize Expo app (composepro-app)
+- `[ ]` Install dependencies (`expo-camera`, icons)
+- `[ ]` Create foundational UI components
+  - `[ ]` `CameraView.js`
+  - `[ ]` `GridOverlay.js`
+  - `[ ]` `HorizonLevel.js`
+  - `[ ]` `CoachingTooltip.js`
+  - `[ ]` `BottomControls.js`
+- `[ ]` Integrate components into `App.js`
+- `[ ]` Verify UI on Expo server
