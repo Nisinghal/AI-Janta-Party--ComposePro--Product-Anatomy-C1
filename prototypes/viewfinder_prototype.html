@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ComposePro — Viewfinder Component 2.1 (Final)</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background-color: #0A0A0C;
+            color: white;
+            font-family: 'Inter', -apple-system, sans-serif;
+            padding: 48px 24px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 48px;
+            min-height: 100vh;
+        }
+
+        /* ===== PAGE HEADER ===== */
+        .page-header {
+            text-align: center;
+            max-width: 640px;
+        }
+        .page-header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: -0.8px;
+            margin-bottom: 8px;
+        }
+        .page-header .subtitle {
+            font-size: 13px;
+            color: #666;
+            line-height: 1.6;
+            letter-spacing: 0.2px;
+        }
+        .badge {
+            display: inline-block;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            color: #34C759;
+            background: rgba(52, 199, 89, 0.1);
+            border: 1px solid rgba(52, 199, 89, 0.2);
+            padding: 4px 12px;
+            border-radius: 100px;
+            margin-bottom: 16px;
+        }
+
+        /* ===== VARIANT LABELS ===== */
+        .variant-label {
+            text-align: center;
+            margin-bottom: 16px;
+        }
+        .variant-label h2 {
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+        .variant-label .tag {
+            font-size: 11px;
+            font-weight: 500;
+            color: #555;
+            margin-top: 4px;
+        }
+
+        /* ===== LAYOUT ===== */
+        .container {
+            display: flex;
+            gap: 48px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .variant-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        /* ===== DEVICE FRAME ===== */
+        .device {
+            width: 375px;
+            height: 812px;
+            background-color: #000;
+            border-radius: 44px;
+            overflow: hidden;
+            position: relative;
+            box-shadow:
+                0 0 0 2px #1A1A1E,
+                0 0 0 4px #0D0D0F,
+                0 30px 80px rgba(0,0,0,0.6);
+        }
+
+        /* ===== NOTCH ===== */
+        .notch {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 160px;
+            height: 34px;
+            background: #000;
+            border-radius: 0 0 20px 20px;
+            z-index: 50;
+        }
+
+        /* ===== CAMERA FEED ===== */
+        .camera-feed {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-image: url('https://images.unsplash.com/photo-1493246507139-91e8fad9978e?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80');
+            background-size: cover;
+            background-position: center;
+            z-index: 1;
+        }
+
+        /* ===== TOP TOOLBAR ===== */
+        .top-toolbar {
+            position: absolute;
+            top: 52px;
+            left: 24px;
+            right: 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 10;
+        }
+        .tb-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: rgba(0,0,0,0.3);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(255,255,255,0.12);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 14px;
+            color: white;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+        .tb-icon:hover { background: rgba(255,255,255,0.15); }
+        .tb-icon svg {
+            width: 16px;
+            height: 16px;
+            fill: none;
+            stroke: white;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        /* ===== AR COACHING TOOLTIP ===== */
+        .tooltip {
+            position: absolute;
+            top: 110px;
+            left: 24px;
+            background: rgba(0, 0, 0, 0.45);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            padding: 10px 18px;
+            border-radius: 16px;
+            font-size: 15px;
+            font-weight: 500;
+            letter-spacing: 0.3px;
+            z-index: 10;
+            border: 1px solid rgba(255,255,255,0.08);
+            opacity: 0;
+            transform: translateY(-6px);
+            transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+            color: white;
+            pointer-events: none;
+        }
+        .tooltip.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* ===== FOCUS BRACKETS ===== */
+        .brackets {
+            position: absolute;
+            top: 22%;
+            bottom: 38%;
+            left: 48px;
+            right: 48px;
+            z-index: 5;
+        }
+        .bracket {
+            position: absolute;
+            width: 32px;
+            height: 32px;
+            border-style: solid;
+            border-color: rgba(255,255,255,0.5);
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .bracket-tl { top: 0; left: 0; border-width: 2px 0 0 2px; border-radius: 4px 0 0 0; }
+        .bracket-tr { top: 0; right: 0; border-width: 2px 2px 0 0; border-radius: 0 4px 0 0; }
+        .bracket-bl { bottom: 0; left: 0; border-width: 0 0 2px 2px; border-radius: 0 0 0 4px; }
+        .bracket-br { bottom: 0; right: 0; border-width: 0 2px 2px 0; border-radius: 0 0 4px 0; }
+
+        /* ===== HORIZON LEVELER ===== */
+        .horizon {
+            position: absolute;
+            left: 48px;
+            right: 48px;
+            height: 1px;
+            background: rgba(255,255,255,0.4);
+            z-index: 5;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* ===== BOTTOM PANEL — FIX 1A: Anchored dark bottom sheet ===== */
+        .bottom-panel {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 200px;
+            background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.85) 30%, rgba(0,0,0,0.95) 100%);
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-end;
+            padding-bottom: 40px;
+            gap: 20px;
+        }
+
+        /* ===== ZOOM CONTROLS — FIX 2B: Monospace, intuitive for general users ===== */
+        .zoom-controls {
+            display: flex;
+            gap: 0;
+            align-items: center;
+        }
+        .zoom-pill {
+            display: flex;
+            align-items: center;
+            background: rgba(255,255,255,0.08);
+            border-radius: 100px;
+            padding: 4px;
+            gap: 0;
+        }
+        .zoom-btn {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            font-weight: 400;
+            color: rgba(255,255,255,0.5);
+            padding: 6px 16px;
+            border-radius: 100px;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            user-select: none;
+        }
+        .zoom-btn.active {
+            font-weight: 700;
+            color: white;
+            background: rgba(255,255,255,0.15);
+        }
+        .zoom-btn:hover:not(.active) { color: rgba(255,255,255,0.7); }
+
+        /* ===== SHUTTER ROW ===== */
+        .shutter-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            padding: 0 24px;
+            position: relative;
+        }
+
+        /* Gallery Preview */
+        .gallery-thumb {
+            position: absolute;
+            left: 32px;
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            background-image: url('https://images.unsplash.com/photo-1506744038136-46273834b3fb?ixlib=rb-4.0.3&auto=format&fit=crop&w=200&q=80');
+            background-size: cover;
+            background-position: center;
+            border: 2px solid rgba(255,255,255,0.2);
+        }
+
+        /* ===== SHUTTER BUTTON — FIX 3B: Glassmorphism gradient ===== */
+        .shutter {
+            width: 72px;
+            height: 72px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 35% 35%,
+                rgba(255,255,255,0.95) 0%,
+                rgba(220,220,225,0.85) 40%,
+                rgba(180,180,190,0.7) 100%
+            );
+            border: 3px solid rgba(255,255,255,0.6);
+            box-shadow:
+                0 0 20px rgba(255,255,255,0.1),
+                inset 0 2px 4px rgba(255,255,255,0.4),
+                inset 0 -2px 4px rgba(0,0,0,0.1);
+            cursor: pointer;
+            transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.15s ease;
+            position: relative;
+        }
+        .shutter:hover {
+            box-shadow:
+                0 0 30px rgba(255,255,255,0.15),
+                inset 0 2px 4px rgba(255,255,255,0.5),
+                inset 0 -2px 4px rgba(0,0,0,0.1);
+        }
+        .shutter:active { transform: scale(0.92); }
+
+        /* Camera Flip */
+        .flip-btn {
+            position: absolute;
+            right: 32px;
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(255,255,255,0.1);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+        }
+        .flip-btn svg {
+            width: 20px; height: 20px;
+            stroke: white; fill: none;
+            stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+        }
+
+        /* ======================================
+           VARIANT A: IDLE / DEFAULT
+           ====================================== */
+        #variant-a .horizon {
+            top: 47%;
+            transform: rotate(-2.5deg);
+        }
+
+        /* ======================================
+           VARIANT B: SCANNING / ACTIVE GUIDANCE
+           ====================================== */
+        #variant-b .horizon {
+            top: 49%;
+            transform: rotate(-1deg);
+        }
+        #variant-b .tooltip { opacity: 1; transform: translateY(0); }
+        @keyframes bracket-pulse {
+            0%   { border-color: rgba(255,255,255,0.4); }
+            50%  { border-color: rgba(255,255,255,1); }
+            100% { border-color: rgba(255,255,255,0.4); }
+        }
+        #variant-b .bracket {
+            animation: bracket-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        /* ======================================
+           VARIANT C: LOCKED / SUCCESS
+           FIX 4B: Green for success
+           ====================================== */
+        #variant-c .horizon {
+            top: 50%;
+            transform: rotate(0deg);
+            background: #34C759;
+            height: 2px;
+            box-shadow: 0 0 12px rgba(52, 199, 89, 0.4);
+        }
+        #variant-c .bracket {
+            border-color: #34C759;
+        }
+        #variant-c .tooltip {
+            opacity: 1;
+            transform: translateY(0);
+            color: #34C759;
+            border-color: rgba(52, 199, 89, 0.2);
+        }
+        #variant-c .shutter {
+            transform: scale(0.93);
+        }
+
+        /* ===== ANNOTATIONS ===== */
+        .annotations {
+            max-width: 900px;
+            width: 100%;
+            margin-top: 24px;
+            padding: 32px;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 16px;
+        }
+        .annotations h3 {
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            color: #888;
+            margin-bottom: 20px;
+        }
+        .anno-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+        }
+        .anno-item {
+            padding: 16px;
+            background: rgba(255,255,255,0.02);
+            border: 1px solid rgba(255,255,255,0.05);
+            border-radius: 12px;
+        }
+        .anno-item .label {
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            color: #555;
+            margin-bottom: 6px;
+        }
+        .anno-item .value {
+            font-size: 13px;
+            font-weight: 500;
+            color: #ccc;
+            line-height: 1.5;
+        }
+        .anno-item .value code {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            background: rgba(255,255,255,0.06);
+            padding: 2px 6px;
+            border-radius: 4px;
+            color: #aaa;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="page-header">
+        <div class="badge">Final — Fixes Applied</div>
+        <h1>Component 2.1: Camera Viewfinder</h1>
+        <p class="subtitle">
+            Three variants with identical layout. Only status treatment changes.<br>
+            Fix 1A (anchored bottom sheet) · Fix 2B (monospace zoom, general user) · Fix 3B (glassmorphism shutter) · Fix 4B (green success)
+        </p>
+    </div>
+
+    <div class="container">
+
+        <!-- ===== VARIANT A: IDLE ===== -->
+        <div class="variant-wrapper">
+            <div class="variant-label">
+                <h2>A · Idle</h2>
+                <div class="tag">Default resting state</div>
+            </div>
+            <div class="device" id="variant-a">
+                <div class="notch"></div>
+                <div class="camera-feed"></div>
+                <div class="top-toolbar">
+                    <div class="tb-icon">
+                        <svg viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                    </div>
+                    <div class="tb-icon">
+                        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                    </div>
+                    <div class="tb-icon">
+                        <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </div>
+                </div>
+                <div class="tooltip">Tilt down slightly</div>
+                <div class="brackets">
+                    <div class="bracket bracket-tl"></div>
+                    <div class="bracket bracket-tr"></div>
+                    <div class="bracket bracket-bl"></div>
+                    <div class="bracket bracket-br"></div>
+                </div>
+                <div class="horizon"></div>
+                <div class="bottom-panel">
+                    <div class="zoom-controls">
+                        <div class="zoom-pill">
+                            <div class="zoom-btn active">1x</div>
+                            <div class="zoom-btn">2x</div>
+                            <div class="zoom-btn">3x</div>
+                        </div>
+                    </div>
+                    <div class="shutter-row">
+                        <div class="gallery-thumb"></div>
+                        <div class="shutter"></div>
+                        <div class="flip-btn">
+                            <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== VARIANT B: SCANNING ===== -->
+        <div class="variant-wrapper">
+            <div class="variant-label">
+                <h2>B · Scanning</h2>
+                <div class="tag">Active guidance in progress</div>
+            </div>
+            <div class="device" id="variant-b">
+                <div class="notch"></div>
+                <div class="camera-feed"></div>
+                <div class="top-toolbar">
+                    <div class="tb-icon">
+                        <svg viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                    </div>
+                    <div class="tb-icon">
+                        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                    </div>
+                    <div class="tb-icon">
+                        <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </div>
+                </div>
+                <div class="tooltip visible">Tilt down slightly</div>
+                <div class="brackets">
+                    <div class="bracket bracket-tl"></div>
+                    <div class="bracket bracket-tr"></div>
+                    <div class="bracket bracket-bl"></div>
+                    <div class="bracket bracket-br"></div>
+                </div>
+                <div class="horizon"></div>
+                <div class="bottom-panel">
+                    <div class="zoom-controls">
+                        <div class="zoom-pill">
+                            <div class="zoom-btn active">1x</div>
+                            <div class="zoom-btn">2x</div>
+                            <div class="zoom-btn">3x</div>
+                        </div>
+                    </div>
+                    <div class="shutter-row">
+                        <div class="gallery-thumb"></div>
+                        <div class="shutter"></div>
+                        <div class="flip-btn">
+                            <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== VARIANT C: LOCKED / SUCCESS ===== -->
+        <div class="variant-wrapper">
+            <div class="variant-label">
+                <h2>C · Locked</h2>
+                <div class="tag">Composition confirmed</div>
+            </div>
+            <div class="device" id="variant-c">
+                <div class="notch"></div>
+                <div class="camera-feed"></div>
+                <div class="top-toolbar">
+                    <div class="tb-icon">
+                        <svg viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                    </div>
+                    <div class="tb-icon">
+                        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                    </div>
+                    <div class="tb-icon">
+                        <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </div>
+                </div>
+                <div class="tooltip visible" style="color: #34C759; border-color: rgba(52,199,89,0.2);">Hold steady ✓</div>
+                <div class="brackets">
+                    <div class="bracket bracket-tl"></div>
+                    <div class="bracket bracket-tr"></div>
+                    <div class="bracket bracket-bl"></div>
+                    <div class="bracket bracket-br"></div>
+                </div>
+                <div class="horizon"></div>
+                <div class="bottom-panel">
+                    <div class="zoom-controls">
+                        <div class="zoom-pill">
+                            <div class="zoom-btn active">1x</div>
+                            <div class="zoom-btn">2x</div>
+                            <div class="zoom-btn">3x</div>
+                        </div>
+                    </div>
+                    <div class="shutter-row">
+                        <div class="gallery-thumb"></div>
+                        <div class="shutter"></div>
+                        <div class="flip-btn">
+                            <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- ===== DESIGN TOKENS ANNOTATION ===== -->
+    <div class="annotations">
+        <h3>Design Tokens Applied</h3>
+        <div class="anno-grid">
+            <div class="anno-item">
+                <div class="label">Fix 1A · Bottom Sheet</div>
+                <div class="value">Anchored to bottom edge, full-width dark gradient sheet instead of floating island. <code>gradient: 0%→transparent, 30%→0.85, 100%→0.95</code></div>
+            </div>
+            <div class="anno-item">
+                <div class="label">Fix 2B · Zoom Typography</div>
+                <div class="value">JetBrains Mono at <code>13px</code>. Active: <code>700 weight, 100% opacity</code>. Inactive: <code>400 weight, 50% opacity</code>. Contained in a subtle pill.</div>
+            </div>
+            <div class="anno-item">
+                <div class="label">Fix 3B · Glassmorphism Shutter</div>
+                <div class="value">Radial gradient with inset highlights. <code>72×72px</code>, <code>3px border</code>. Pressed state: <code>scale(0.93)</code>.</div>
+            </div>
+            <div class="anno-item">
+                <div class="label">Fix 4B · Green Success</div>
+                <div class="value">Success color: <code>#34C759</code>. Applied to horizon (2px + glow), brackets, and tooltip text. Universal "go" signal.</div>
+            </div>
+            <div class="anno-item">
+                <div class="label">Spacing Rhythm</div>
+                <div class="value">8pt grid. Edge margins: <code>24px</code>. Bracket inset: <code>48px</code>. Bottom panel height: <code>200px</code>. Shutter: <code>72px</code>.</div>
+            </div>
+            <div class="anno-item">
+                <div class="label">Type Scale</div>
+                <div class="value">Tooltip: <code>Inter 15px/500</code>. Zoom: <code>JetBrains Mono 13px</code>. Sub-labels: <code>10px/700, ALL-CAPS, +1.5px tracking</code>.</div>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>

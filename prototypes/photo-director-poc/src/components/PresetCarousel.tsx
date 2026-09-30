@@ -5,23 +5,20 @@ import { useCompositionContext } from "../context/CompositionContext";
 import type { GenrePreset } from "../types/composition";
 
 export interface PresetCarouselProps {
-  /** Optional custom CSS class name */
   className?: string;
-  /** Optional callback triggered on preset selection */
   onSelectPreset?: (preset: GenrePreset) => void;
 }
 
 interface PresetItem {
   id: GenrePreset;
   label: string;
+  emoji: string;
 }
 
 const PRESET_OPTIONS: PresetItem[] = [
-  { id: "PEOPLE", label: "People" },
-  { id: "FOOD", label: "Food" },
-  { id: "NATURE", label: "Nature" },
-  { id: "STREET", label: "Street" },
-  { id: "MACRO", label: "Macro" },
+  { id: "FLAT_LAY", label: "Flat Lay", emoji: "🍽️" },
+  { id: "HERO_SHOT", label: "Hero", emoji: "🍔" },
+  { id: "TALL_STACK", label: "Stack", emoji: "🥞" },
 ];
 
 export default function PresetCarousel({ className = "", onSelectPreset }: PresetCarouselProps) {
@@ -29,25 +26,12 @@ export default function PresetCarousel({ className = "", onSelectPreset }: Prese
   const containerRef = useRef<HTMLDivElement>(null);
 
   const handleSelect = (preset: GenrePreset, e: React.MouseEvent<HTMLButtonElement>) => {
-    // Subtle haptic response on supported mobile devices
     if (typeof navigator !== "undefined" && "vibrate" in navigator) {
-      try {
-        navigator.vibrate(12);
-      } catch {
-        // Ignore haptics failure if unsupported or blocked
-      }
+      try { navigator.vibrate(12); } catch {}
     }
-
-    // Immediately update active preset state without affecting camera stream
     setActivePreset(preset);
     onSelectPreset?.(preset);
-
-    // Smoothly center the active pill within the dock
-    e.currentTarget.scrollIntoView({
-      behavior: "smooth",
-      inline: "center",
-      block: "nearest",
-    });
+    e.currentTarget.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
   };
 
   return (
@@ -59,8 +43,8 @@ export default function PresetCarousel({ className = "", onSelectPreset }: Prese
         display: "flex",
         justifyContent: "center",
         width: "100%",
-        padding: "0 0.75rem",
-        marginBottom: "0.65rem",
+        padding: "0 1rem",
+        marginBottom: "0.75rem",
       }}
     >
       <div
@@ -70,18 +54,12 @@ export default function PresetCarousel({ className = "", onSelectPreset }: Prese
         style={{
           display: "flex",
           alignItems: "center",
-          gap: "0.35rem",
-          maxWidth: "100%",
-          overflowX: "auto",
-          scrollbarWidth: "none",
-          WebkitOverflowScrolling: "touch",
-          padding: "0.3rem 0.4rem",
+          gap: "0.5rem",
+          padding: "0.3rem",
           borderRadius: "999px",
-          background: "rgba(0, 0, 0, 0.52)",
-          border: "1px solid rgba(255, 255, 255, 0.12)",
-          backdropFilter: "blur(18px)",
-          WebkitBackdropFilter: "blur(18px)",
-          boxShadow: "0 8px 30px rgba(0, 0, 0, 0.35)",
+          background: "rgba(0, 0, 0, 0.45)",
+          backdropFilter: "blur(16px)",
+          WebkitBackdropFilter: "blur(16px)",
         }}
       >
         <style>
@@ -92,7 +70,7 @@ export default function PresetCarousel({ className = "", onSelectPreset }: Prese
           `}
         </style>
 
-        {PRESET_OPTIONS.map(({ id, label }) => {
+        {PRESET_OPTIONS.map(({ id, label, emoji }) => {
           const isSelected = activePreset === id;
           return (
             <button
@@ -105,27 +83,24 @@ export default function PresetCarousel({ className = "", onSelectPreset }: Prese
                 display: "inline-flex",
                 alignItems: "center",
                 justifyContent: "center",
-                minHeight: "38px",
-                minWidth: "64px",
-                padding: "0.45rem 1.05rem",
+                gap: "0.4rem",
+                minHeight: "36px",
+                padding: "0.4rem 1rem",
                 borderRadius: "999px",
-                border: isSelected
-                  ? "1px solid rgba(213, 255, 72, 0.5)"
-                  : "1px solid transparent",
-                background: isSelected ? "rgba(213, 255, 72, 0.16)" : "transparent",
-                color: isSelected ? "#d5ff48" : "rgba(255, 255, 255, 0.65)",
-                boxShadow: isSelected ? "0 0 16px rgba(213, 255, 72, 0.28)" : "none",
-                fontSize: "0.78rem",
+                border: "none",
+                background: isSelected ? "#FF6B6B" : "transparent",
+                color: isSelected ? "#fff" : "rgba(255, 255, 255, 0.7)",
+                boxShadow: isSelected ? "0 4px 16px rgba(255,107,107,.4)" : "none",
+                fontSize: "0.8rem",
                 fontWeight: isSelected ? 700 : 500,
-                letterSpacing: "0.04em",
-                textTransform: "uppercase",
                 whiteSpace: "nowrap",
                 cursor: "pointer",
-                transition: "all 0.22s cubic-bezier(0.16, 1, 0.3, 1)",
+                transition: "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
                 userSelect: "none",
                 WebkitTapHighlightColor: "transparent",
               }}
             >
+              <span style={{ fontSize: "1rem" }}>{emoji}</span>
               {label}
             </button>
           );
@@ -134,3 +109,4 @@ export default function PresetCarousel({ className = "", onSelectPreset }: Prese
     </nav>
   );
 }
+

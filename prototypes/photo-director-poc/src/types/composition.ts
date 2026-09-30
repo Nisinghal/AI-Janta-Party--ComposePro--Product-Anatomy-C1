@@ -7,9 +7,9 @@
 // ============================================================================
 
 /**
- * Supported composition genre presets for photographic direction.
+ * Supported composition genre presets for photographic direction (Food MVP).
  */
-export type GenrePreset = 'PEOPLE' | 'FOOD' | 'NATURE' | 'STREET' | 'MACRO';
+export type GenrePreset = 'FLAT_LAY' | 'HERO_SHOT' | 'TALL_STACK';
 
 /**
  * Normalized bounding box coordinates within the camera viewfinder (0.0 to 1.0).

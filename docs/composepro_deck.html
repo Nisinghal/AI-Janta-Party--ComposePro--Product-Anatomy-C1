@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ComposePro — Progress Deck</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --bg: #09090B;
+            --surface: #111113;
+            --surface-2: #1A1A1F;
+            --border: rgba(255,255,255,0.06);
+            --text-primary: #FAFAFA;
+            --text-secondary: #A1A1AA;
+            --text-muted: #52525B;
+            --accent: #34C759;
+            --accent-dim: rgba(52, 199, 89, 0.12);
+            --warm: #F5A623;
+            --warm-dim: rgba(245, 166, 35, 0.12);
+        }
+
+        html, body {
+            height: 100%;
+            overflow: hidden;
+            background: var(--bg);
+            color: var(--text-primary);
+            font-family: 'Inter', -apple-system, sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* ===== SLIDE SYSTEM ===== */
+        .slide {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 64px 80px;
+            opacity: 0;
+            visibility: hidden;
+            transform: translateX(60px);
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow-y: auto;
+        }
+        .slide.active {
+            opacity: 1;
+            visibility: visible;
+            transform: translateX(0);
+        }
+        .slide.prev {
+            transform: translateX(-60px);
+        }
+
+        /* ===== NAVIGATION ===== */
+        .nav {
+            position: fixed;
+            bottom: 32px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            z-index: 100;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 100px;
+            padding: 8px 16px;
+        }
+        .nav-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .nav-dot.active {
+            background: var(--accent);
+            width: 24px;
+            border-radius: 4px;
+        }
+        .nav-label {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+            letter-spacing: 0.5px;
+            margin-left: 8px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* ===== PROGRESS BAR ===== */
+        .progress-bar {
+            position: fixed;
+            top: 0; left: 0;
+            height: 2px;
+            background: linear-gradient(90deg, var(--accent), var(--warm));
+            z-index: 200;
+            transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* ===== COMMON ELEMENTS ===== */
+        .badge {
+            display: inline-block;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            padding: 6px 14px;
+            border-radius: 100px;
+            margin-bottom: 20px;
+        }
+        .badge-green { color: var(--accent); background: var(--accent-dim); border: 1px solid rgba(52,199,89,0.15); }
+        .badge-warm { color: var(--warm); background: var(--warm-dim); border: 1px solid rgba(245,166,35,0.15); }
+        .badge-neutral { color: var(--text-secondary); background: rgba(255,255,255,0.04); border: 1px solid var(--border); }
+
+        h1 {
+            font-size: 56px;
+            font-weight: 800;
+            letter-spacing: -2px;
+            line-height: 1.1;
+            max-width: 900px;
+            text-align: center;
+        }
+        h2 {
+            font-size: 40px;
+            font-weight: 700;
+            letter-spacing: -1.5px;
+            line-height: 1.2;
+            max-width: 800px;
+        }
+        h3 {
+            font-size: 24px;
+            font-weight: 600;
+            letter-spacing: -0.5px;
+        }
+        .subtitle {
+            font-size: 18px;
+            color: var(--text-secondary);
+            line-height: 1.7;
+            max-width: 640px;
+            text-align: center;
+            margin-top: 16px;
+            font-weight: 400;
+        }
+
+        /* ===== SLIDE 1: TITLE ===== */
+        .title-slide {
+            text-align: center;
+            gap: 0;
+        }
+        .title-slide .logo {
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 40px;
+        }
+        .title-slide h1 span {
+            background: linear-gradient(135deg, #fff 0%, #888 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .title-slide .meta {
+            margin-top: 32px;
+            font-size: 13px;
+            color: var(--text-muted);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* ===== SLIDE 2: PROBLEM ===== */
+        .problem-slide { text-align: center; gap: 0; }
+        .stat-row {
+            display: flex;
+            gap: 48px;
+            margin-top: 48px;
+        }
+        .stat {
+            text-align: center;
+        }
+        .stat .number {
+            font-size: 48px;
+            font-weight: 800;
+            letter-spacing: -2px;
+            color: var(--accent);
+        }
+        .stat .label {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-top: 8px;
+            line-height: 1.5;
+            max-width: 180px;
+        }
+
+        /* ===== SLIDE 3: SOLUTION ===== */
+        .solution-slide { text-align: center; gap: 0; }
+        .pillars {
+            display: flex;
+            gap: 24px;
+            margin-top: 48px;
+        }
+        .pillar {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 32px 28px;
+            width: 220px;
+            text-align: left;
+        }
+        .pillar .icon {
+            font-size: 28px;
+            margin-bottom: 16px;
+        }
+        .pillar h4 {
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .pillar p {
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        /* ===== SLIDE 4 & 5: UX FLOWS ===== */
+        .flow-slide {
+            text-align: center;
+            gap: 0;
+        }
+        .flow-slide img {
+            max-width: 100%;
+            max-height: 65vh;
+            border-radius: 16px;
+            margin-top: 32px;
+            border: 1px solid var(--border);
+            object-fit: contain;
+        }
+
+        /* ===== SLIDE 6: DESIGN DIRECTION ===== */
+        .design-slide { gap: 0; }
+        .design-slide .content {
+            display: flex;
+            gap: 32px;
+            margin-top: 40px;
+            width: 100%;
+            max-width: 1100px;
+        }
+        .token-card {
+            flex: 1;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 28px;
+        }
+        .token-card h4 {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 16px;
+        }
+        .token-card ul {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .token-card li {
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            padding-left: 16px;
+            border-left: 2px solid var(--border);
+        }
+        .token-card li strong { color: var(--text-primary); }
+        .token-card li code {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            background: rgba(255,255,255,0.05);
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+
+        /* ===== SLIDE 7: COMPONENT ===== */
+        .component-slide {
+            gap: 0;
+        }
+        .component-slide .variants {
+            display: flex;
+            gap: 24px;
+            margin-top: 32px;
+        }
+        .variant-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            overflow: hidden;
+            width: 260px;
+        }
+        .variant-card .preview {
+            width: 100%;
+            height: 380px;
+            background: #000;
+            position: relative;
+            overflow: hidden;
+        }
+        .variant-card .preview .feed {
+            position: absolute; inset: 0;
+            background-image: url('https://images.unsplash.com/photo-1493246507139-91e8fad9978e?ixlib=rb-4.0.3&auto=format&fit=crop&w=400&q=80');
+            background-size: cover; background-position: center;
+        }
+        /* Mini brackets */
+        .mini-brackets { position: absolute; top: 20%; bottom: 35%; left: 24px; right: 24px; }
+        .mini-b { position: absolute; width: 20px; height: 20px; border-style: solid; }
+        .mini-b.tl { top:0; left:0; border-width: 2px 0 0 2px; border-color: rgba(255,255,255,0.5); }
+        .mini-b.tr { top:0; right:0; border-width: 2px 2px 0 0; border-color: rgba(255,255,255,0.5); }
+        .mini-b.bl { bottom:0; left:0; border-width: 0 0 2px 2px; border-color: rgba(255,255,255,0.5); }
+        .mini-b.br { bottom:0; right:0; border-width: 0 2px 2px 0; border-color: rgba(255,255,255,0.5); }
+        /* Mini horizon */
+        .mini-horizon { position: absolute; left: 24px; right: 24px; height: 1px; background: rgba(255,255,255,0.4); }
+        /* Mini tooltip */
+        .mini-tooltip {
+            position: absolute; top: 60px; left: 16px;
+            background: rgba(0,0,0,0.4); backdrop-filter: blur(8px);
+            padding: 6px 12px; border-radius: 10px;
+            font-size: 11px; font-weight: 500; color: white;
+            border: 1px solid rgba(255,255,255,0.08);
+            opacity: 0;
+        }
+        /* Mini shutter */
+        .mini-shutter {
+            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+            width: 44px; height: 44px; border-radius: 50%;
+            background: radial-gradient(circle at 35% 35%, rgba(255,255,255,0.9), rgba(200,200,200,0.7));
+            border: 2px solid rgba(255,255,255,0.6);
+        }
+        /* Mini bottom gradient */
+        .mini-bottom {
+            position: absolute; bottom: 0; left: 0; right: 0; height: 100px;
+            background: linear-gradient(transparent, rgba(0,0,0,0.9));
+        }
+        /* Variant status info */
+        .variant-info { padding: 20px; }
+        .variant-info h4 { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+        .variant-info p { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+
+        /* Variant B: scanning */
+        .variant-scanning .mini-tooltip { opacity: 1; }
+        @keyframes mini-pulse { 0%{ border-color: rgba(255,255,255,0.3); } 50%{ border-color: white; } 100%{ border-color: rgba(255,255,255,0.3); } }
+        .variant-scanning .mini-b { animation: mini-pulse 2s infinite; }
+
+        /* Variant C: locked */
+        .variant-locked .mini-horizon { background: #34C759; height: 2px; top: 50%; box-shadow: 0 0 8px rgba(52,199,89,0.4); }
+        .variant-locked .mini-b { border-color: #34C759 !important; }
+        .variant-locked .mini-tooltip { opacity: 1; color: #34C759; }
+        .variant-locked .mini-shutter { transform: translateX(-50%) scale(0.92); }
+
+        /* Idle horizon position */
+        .variant-idle .mini-horizon { top: 47%; transform: rotate(-2.5deg); }
+        .variant-scanning .mini-horizon { top: 49%; transform: rotate(-1deg); }
+        .variant-locked .mini-horizon { top: 50%; transform: rotate(0deg); }
+
+        /* ===== SLIDE 8: DECISIONS ===== */
+        .decisions-slide { gap: 0; text-align: left; align-items: flex-start; }
+        .decision-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-top: 40px;
+            width: 100%;
+            max-width: 1000px;
+        }
+        .decision-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 24px;
+        }
+        .decision-card .q {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+        .decision-card .question {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            line-height: 1.4;
+        }
+        .decision-card .answer {
+            font-size: 13px;
+            color: var(--accent);
+            font-weight: 600;
+            display: flex; align-items: center; gap: 6px;
+        }
+        .decision-card .answer::before {
+            content: '✓';
+            font-size: 12px;
+        }
+
+        /* ===== SLIDE 9: NEXT STEPS ===== */
+        .next-slide { text-align: center; gap: 0; }
+        .timeline {
+            display: flex;
+            gap: 0;
+            margin-top: 48px;
+            position: relative;
+        }
+        .timeline::before {
+            content: '';
+            position: absolute;
+            top: 32px; left: 60px; right: 60px;
+            height: 2px;
+            background: var(--border);
+        }
+        .step {
+            width: 200px;
+            text-align: center;
+            position: relative;
+        }
+        .step .dot {
+            width: 16px; height: 16px;
+            border-radius: 50%;
+            background: var(--surface-2);
+            border: 2px solid var(--text-muted);
+            margin: 24px auto 20px;
+            position: relative;
+            z-index: 2;
+        }
+        .step.done .dot { background: var(--accent); border-color: var(--accent); }
+        .step.current .dot { background: var(--warm); border-color: var(--warm); box-shadow: 0 0 12px rgba(245,166,35,0.4); }
+        .step h4 { font-size: 14px; font-weight: 700; margin-bottom: 6px; }
+        .step p { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+
+        /* ===== KEYBOARD HINT ===== */
+        .key-hint {
+            position: fixed;
+            bottom: 32px;
+            right: 32px;
+            font-size: 11px;
+            color: var(--text-muted);
+            font-family: 'JetBrains Mono', monospace;
+            z-index: 100;
+        }
+        .key-hint kbd {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="progress-bar" id="progressBar"></div>
+
+    <!-- ===== SLIDE 1: TITLE ===== -->
+    <div class="slide title-slide active" data-index="0">
+        <div class="logo">ComposePro</div>
+        <h1><span>Your personal photo coach,<br>right in the viewfinder.</span></h1>
+        <p class="subtitle">Real-time composition guidance that helps everyday users capture stunning photos — before they press the shutter.</p>
+        <div class="meta">Progress Review · Sept 2026 · Section 2.1 Viewfinder</div>
+    </div>
+
+    <!-- ===== SLIDE 2: PROBLEM ===== -->
+    <div class="slide problem-slide" data-index="1">
+        <div class="badge badge-neutral">The Problem</div>
+        <h2>Great photos aren't about the camera.<br>They're about knowing <em>where to stand</em>.</h2>
+        <p class="subtitle">Most people take mediocre photos not because of hardware, but because they lack composition instinct. Editing apps fix photos after the fact — but the best photo is the one that was composed right from the start.</p>
+        <div class="stat-row">
+            <div class="stat">
+                <div class="number">93%</div>
+                <div class="label">of smartphone users have never used a composition guide</div>
+            </div>
+            <div class="stat">
+                <div class="number">4.2B</div>
+                <div class="label">photos taken daily on smartphones worldwide</div>
+            </div>
+            <div class="stat">
+                <div class="number">0</div>
+                <div class="label">camera apps that coach you in real-time before the shot</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== SLIDE 3: SOLUTION ===== -->
+    <div class="slide solution-slide" data-index="2">
+        <div class="badge badge-green">The Solution</div>
+        <h2>ComposePro coaches you<br>while you compose.</h2>
+        <p class="subtitle">An AI-powered camera that overlays real-time guidance — grids, levels, subject placement, and concise text prompts — directly on the live viewfinder.</p>
+        <div class="pillars">
+            <div class="pillar">
+                <div class="icon">📐</div>
+                <h4>Smart Overlays</h4>
+                <p>Rule-of-thirds grid, horizon leveler, and subject placement indicators adapt in real time.</p>
+            </div>
+            <div class="pillar">
+                <div class="icon">💬</div>
+                <h4>Coaching Prompts</h4>
+                <p>Concise 3–6 word tips like "Tilt down slightly" delivered via floating glassmorphism pills.</p>
+            </div>
+            <div class="pillar">
+                <div class="icon">🎯</div>
+                <h4>Genre Presets</h4>
+                <p>Portrait, Food, Landscape — each preset adjusts the guidance rules to match your intent.</p>
+            </div>
+            <div class="pillar">
+                <div class="icon">✨</div>
+                <h4>Zero Friction</h4>
+                <p>Open the app and you're in the camera. No menus, no setup. Just point, follow, and shoot.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== SLIDE 4: UX FLOW — KEY SCREENS ===== -->
+    <div class="slide flow-slide" data-index="3">
+        <div class="badge badge-warm">UX Flow</div>
+        <h3>Key Screens — Full User Journey</h3>
+        <img src="file:///C:/Users/nisht/.gemini/antigravity-ide/brain/06eed479-7685-45ba-b2f2-fe195cb4b813/ux_flow_key_screens.png" alt="Key Screens UX Flow" />
+    </div>
+
+    <!-- ===== SLIDE 5: UX FLOW — CAMERA FIRST ===== -->
+    <div class="slide flow-slide" data-index="4">
+        <div class="badge badge-warm">UX Flow</div>
+        <h3>Camera-First Flow — Open, Get Guided, Capture</h3>
+        <img src="file:///C:/Users/nisht/.gemini/antigravity-ide/brain/06eed479-7685-45ba-b2f2-fe195cb4b813/ux_flow_camera_first.png" alt="Camera-First Flow" />
+    </div>
+
+    <!-- ===== SLIDE 6: DESIGN DIRECTION ===== -->
+    <div class="slide design-slide" data-index="5">
+        <div class="badge badge-neutral">Design Direction</div>
+        <h2>Structure & rhythm, not color.</h2>
+        <div class="content">
+            <div class="token-card">
+                <h4>Type Scale</h4>
+                <ul>
+                    <li><strong>Active Mode:</strong> Inter <code>14px/700</code>, 100% opacity</li>
+                    <li><strong>Inactive:</strong> Inter <code>14px/400</code>, 60% opacity</li>
+                    <li><strong>Coaching Tips:</strong> Inter <code>15px/500</code>, +0.3px tracking</li>
+                    <li><strong>Zoom:</strong> JetBrains Mono <code>13px</code> in pill selector</li>
+                    <li><strong>Sub-labels:</strong> <code>10px/700</code>, ALL-CAPS, +1.5px tracking</li>
+                </ul>
+            </div>
+            <div class="token-card">
+                <h4>Spacing Rhythm</h4>
+                <ul>
+                    <li><strong>Base grid:</strong> <code>8pt</code> system</li>
+                    <li><strong>Edge margins:</strong> <code>24px</code></li>
+                    <li><strong>Bracket inset:</strong> <code>48px</code> from edges</li>
+                    <li><strong>Bottom panel:</strong> <code>200px</code> anchored sheet</li>
+                    <li><strong>Shutter:</strong> <code>72×72px</code>, <code>3px</code> border</li>
+                </ul>
+            </div>
+            <div class="token-card">
+                <h4>State Signaling</h4>
+                <ul>
+                    <li><strong>Active:</strong> Font weight 400→700, opacity 60%→100%</li>
+                    <li><strong>Success:</strong> <code>#34C759</code> green on horizon, brackets, tooltip</li>
+                    <li><strong>Scanning:</strong> Bracket pulse animation (2s infinite)</li>
+                    <li><strong>Disabled:</strong> 20% opacity</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== SLIDE 7: COMPONENT ===== -->
+    <div class="slide component-slide" data-index="6">
+        <div class="badge badge-green">Component 2.1</div>
+        <h2>Viewfinder — 3 Variants</h2>
+        <div class="variants">
+            <!-- IDLE -->
+            <div class="variant-card">
+                <div class="preview variant-idle">
+                    <div class="feed"></div>
+                    <div class="mini-brackets">
+                        <div class="mini-b tl"></div><div class="mini-b tr"></div>
+                        <div class="mini-b bl"></div><div class="mini-b br"></div>
+                    </div>
+                    <div class="mini-horizon"></div>
+                    <div class="mini-tooltip">Tilt down slightly</div>
+                    <div class="mini-bottom"></div>
+                    <div class="mini-shutter"></div>
+                </div>
+                <div class="variant-info">
+                    <h4>A · Idle</h4>
+                    <p>Default resting state. Brackets at 60% opacity. Horizon slightly tilted. Tooltip hidden. Shutter ready.</p>
+                </div>
+            </div>
+            <!-- SCANNING -->
+            <div class="variant-card">
+                <div class="preview variant-scanning">
+                    <div class="feed"></div>
+                    <div class="mini-brackets">
+                        <div class="mini-b tl"></div><div class="mini-b tr"></div>
+                        <div class="mini-b bl"></div><div class="mini-b br"></div>
+                    </div>
+                    <div class="mini-horizon"></div>
+                    <div class="mini-tooltip">Tilt down slightly</div>
+                    <div class="mini-bottom"></div>
+                    <div class="mini-shutter"></div>
+                </div>
+                <div class="variant-info">
+                    <h4>B · Scanning</h4>
+                    <p>Active guidance. Brackets pulse. Tooltip appears with coaching text. User adjusts framing.</p>
+                </div>
+            </div>
+            <!-- LOCKED -->
+            <div class="variant-card">
+                <div class="preview variant-locked">
+                    <div class="feed"></div>
+                    <div class="mini-brackets">
+                        <div class="mini-b tl"></div><div class="mini-b tr"></div>
+                        <div class="mini-b bl"></div><div class="mini-b br"></div>
+                    </div>
+                    <div class="mini-horizon"></div>
+                    <div class="mini-tooltip">Hold steady ✓</div>
+                    <div class="mini-bottom"></div>
+                    <div class="mini-shutter"></div>
+                </div>
+                <div class="variant-info">
+                    <h4>C · Locked</h4>
+                    <p>Composition confirmed. Green horizon + brackets. Shutter scales down. "Hold steady" prompt.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== SLIDE 8: DECISIONS ===== -->
+    <div class="slide decisions-slide" data-index="7">
+        <div class="badge badge-warm">Design Decisions</div>
+        <h2>What we resolved today</h2>
+        <div class="decision-grid">
+            <div class="decision-card">
+                <div class="q">Spacing</div>
+                <div class="question">Floating island vs anchored bottom sheet?</div>
+                <div class="answer">Anchored dark gradient sheet (Pro camera feel)</div>
+            </div>
+            <div class="decision-card">
+                <div class="q">Typography</div>
+                <div class="question">Pro technical metrics vs simple zoom labels?</div>
+                <div class="answer">Monospace zoom only — intuitive for general users</div>
+            </div>
+            <div class="decision-card">
+                <div class="q">Shutter</div>
+                <div class="question">Flat white circle vs glassmorphism gradient?</div>
+                <div class="answer">Glassmorphism shutter with radial gradient</div>
+            </div>
+            <div class="decision-card">
+                <div class="q">Success State</div>
+                <div class="question">Gold/Yellow accent vs green for "locked"?</div>
+                <div class="answer">Green (#34C759) — universal "go" signal</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== SLIDE 9: NEXT STEPS ===== -->
+    <div class="slide next-slide" data-index="8">
+        <div class="badge badge-green">What's Next</div>
+        <h2>Roadmap to MVP</h2>
+        <div class="timeline">
+            <div class="step done">
+                <div class="dot"></div>
+                <h4>PRD</h4>
+                <p>Product requirements defined across 3 phases</p>
+            </div>
+            <div class="step done">
+                <div class="dot"></div>
+                <h4>Design Direction</h4>
+                <p>9 references, type scale, spacing, state system</p>
+            </div>
+            <div class="step done">
+                <div class="dot"></div>
+                <h4>Component 2.1</h4>
+                <p>Viewfinder with 3 variants designed & reviewed</p>
+            </div>
+            <div class="step current">
+                <div class="dot"></div>
+                <h4>React Native</h4>
+                <p>Initialize Expo project, implement live camera feed</p>
+            </div>
+            <div class="step">
+                <div class="dot"></div>
+                <h4>Overlays</h4>
+                <p>Grid, horizon leveler, and coaching tooltips</p>
+            </div>
+            <div class="step">
+                <div class="dot"></div>
+                <h4>Ship MVP</h4>
+                <p>Android build with full Phase 1 features</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== NAV ===== -->
+    <div class="nav" id="nav"></div>
+    <div class="key-hint"><kbd>←</kbd> <kbd>→</kbd> to navigate</div>
+
+    <script>
+        const slides = document.querySelectorAll('.slide');
+        const nav = document.getElementById('nav');
+        const progressBar = document.getElementById('progressBar');
+        let current = 0;
+
+        // Build nav dots
+        slides.forEach((_, i) => {
+            const dot = document.createElement('div');
+            dot.className = 'nav-dot' + (i === 0 ? ' active' : '');
+            dot.onclick = () => goTo(i);
+            nav.appendChild(dot);
+        });
+        const label = document.createElement('div');
+        label.className = 'nav-label';
+        label.id = 'navLabel';
+        label.textContent = '1/' + slides.length;
+        nav.appendChild(label);
+
+        function goTo(index) {
+            if (index < 0 || index >= slides.length) return;
+            slides[current].classList.remove('active');
+            slides[current].classList.add(index > current ? 'prev' : '');
+            setTimeout(() => slides[current === index ? current : (index > current ? current : current)], 0);
+
+            // Reset all slides
+            slides.forEach(s => { s.classList.remove('active', 'prev'); });
+
+            current = index;
+            slides[current].classList.add('active');
+
+            // Update nav
+            document.querySelectorAll('.nav-dot').forEach((d, i) => {
+                d.classList.toggle('active', i === current);
+            });
+            document.getElementById('navLabel').textContent = (current + 1) + '/' + slides.length;
+
+            // Update progress bar
+            progressBar.style.width = ((current + 1) / slides.length * 100) + '%';
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); goTo(current + 1); }
+            if (e.key === 'ArrowLeft') { e.preventDefault(); goTo(current - 1); }
+        });
+    </script>
+
+</body>
+</html>

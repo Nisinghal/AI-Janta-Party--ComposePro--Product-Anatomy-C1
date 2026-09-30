@@ -271,27 +271,12 @@ export function evaluateSceneComposition(
   poses: any[] = [],
   objects: any[] = [],
   frameWidth: number = 1920,
-  frameHeight: number = 1080
+  frameHeight: number = 1080,
+  devicePitch: number = 0
 ): CompositionOpportunity {
-  // 1. Scene Classification & Subject Presence Guard
-  const hasFaces = Array.isArray(faces) && faces.length > 0;
-  const hasPoses = Array.isArray(poses) && poses.length > 0;
-
   const validObjects = (Array.isArray(objects) ? objects : []).filter(
     (obj) => obj && (obj.boundingBox || (obj.width !== undefined && obj.height !== undefined))
   );
-
-  // Subject Presence Guard: If no faces, poses, or recognized objects are detected in frame
-  if (!hasFaces && !hasPoses && validObjects.length === 0) {
-    return {
-      scene: 'unknown',
-      primarySubjectBox: null,
-      targetAnchor: null,
-      edgeViolation: { hasViolation: false, edges: [], clutterDensity: 0 },
-      actionNudge: { text: 'Finding subject...', priority: 'low' },
-      isOptimized: false,
-    };
-  }
 
   const tablewareObjects = validObjects.filter((obj) => {
     const rawCategory = obj.categories?.[0]?.categoryName || obj.label || '';
@@ -299,88 +284,16 @@ export function evaluateSceneComposition(
     return category && TABLEWARE_CLASSES.has(category);
   });
 
-  let scene: DetectedSceneType = 'unknown';
-  if (hasFaces || hasPoses) {
-    scene = 'portrait';
-  } else if (tablewareObjects.length > 0) {
-    scene = 'tabletop_food';
-  } else if (validObjects.length > 0) {
-    scene = 'scenic';
-  }
+  const scene: DetectedSceneType = tablewareObjects.length > 0 ? 'tabletop_food' : 'unknown';
 
-  // 2. Primary Subject Identification & Target Anchors
   let primarySubjectBox: { x: number; y: number; width: number; height: number } | null = null;
   let targetAnchor: { x: number; y: number } | null = null;
   let actionNudge: { text: string; priority: 'low' | 'medium' | 'high' } | null = null;
   let isOptimized = false;
   let totalArea = 0;
 
-  if (scene === 'portrait') {
-    // Primary Subject Box from largest face or pose
-    let largestFaceRect: NormalizedRect | null = null;
-    let maxArea = -1;
-
-    for (const f of faces) {
-      if (f.boundingBox) {
-        const rect = toNormalizedRect(f.boundingBox, frameWidth, frameHeight);
-        const area = rect.width * rect.height;
-        if (area > maxArea) {
-          maxArea = area;
-          largestFaceRect = rect;
-        }
-      }
-    }
-
-    if (largestFaceRect) {
-      primarySubjectBox = {
-        x: largestFaceRect.x,
-        y: largestFaceRect.y,
-        width: largestFaceRect.width,
-        height: largestFaceRect.height,
-      };
-    } else if (hasPoses) {
-      const landmarks = Array.isArray(poses[0]) ? poses[0] : poses[0]?.landmarks;
-      if (Array.isArray(landmarks) && landmarks.length > 0) {
-        const xs = landmarks.map((p: any) => p.x);
-        const ys = landmarks.map((p: any) => p.y);
-        const minX = Math.min(...xs);
-        const maxX = Math.max(...xs);
-        const minY = Math.min(...ys);
-        const maxY = Math.max(...ys);
-        primarySubjectBox = {
-          x: Math.max(0, minX),
-          y: Math.max(0, minY),
-          width: Math.min(1, maxX - minX),
-          height: Math.min(1, maxY - minY),
-        };
-      }
-    }
-
-    // Target Anchor: Use a clear rule-of-thirds upper target at normalized coordinates (targetX: 0.50 or 0.38, targetY: 0.35)
-    let targetX = 0.50; // Default center for direct portrait
-
-    const primaryPose = Array.isArray(poses[0]) ? poses[0] : poses[0]?.landmarks;
-    if (Array.isArray(primaryPose) && primaryPose.length >= 13) {
-      const nose = primaryPose[0];
-      const leftShoulder = primaryPose[11];
-      const rightShoulder = primaryPose[12];
-
-      if (nose && leftShoulder && rightShoulder) {
-        const midShoulderX = (leftShoulder.x + rightShoulder.x) / 2;
-        // Looking towards camera-right (needs leading space on right)
-        if (nose.x > midShoulderX + 0.03) {
-          targetX = 0.38; // Place subject on left third
-        } else {
-          targetX = 0.50; // Direct portrait framing
-        }
-      }
-    }
-
-    targetAnchor = { x: targetX, y: 0.35 };
-  } else if (scene === 'tabletop_food') {
-    // Tabletop / Food: identify hero dish as primary subject
-    const targetTableware = tablewareObjects.length > 0 ? tablewareObjects : validObjects;
-
+  if (scene === 'tabletop_food') {
+    const targetTableware = tablewareObjects;
     let heroDishRect: NormalizedRect | null = null;
     let bestDishScore = -1;
 
@@ -394,7 +307,6 @@ export function evaluateSceneComposition(
         heroDishRect = rect;
       }
 
-      // Calculate area intersecting center zone [0.25, 0.75]
       const interLeft = Math.max(rect.x, 0.25);
       const interTop = Math.max(rect.y, 0.25);
       const interRight = Math.min(rect.x + rect.width, 0.75);
@@ -412,23 +324,11 @@ export function evaluateSceneComposition(
         height: heroDishRect.height,
       };
     }
-
-    targetAnchor = { x: 0.5, y: 0.45 };
-  } else if (scene === 'scenic') {
-    // Scenic: pick most prominent object if present
-    if (validObjects.length > 0) {
-      const firstRect = toNormalizedRect(validObjects[0].boundingBox || validObjects[0], frameWidth, frameHeight);
-      primarySubjectBox = {
-        x: firstRect.x,
-        y: firstRect.y,
-        width: firstRect.width,
-        height: firstRect.height,
-      };
-    }
-    targetAnchor = { x: 0.5, y: 0.33 };
+    
+    // Default food anchor (center-ish)
+    targetAnchor = { x: 0.5, y: 0.5 };
   }
 
-  // 3. Edge Violation & Clutter Evaluation
   const edgeViolation = checkEdgeViolations(
     validObjects,
     primarySubjectBox,
@@ -437,41 +337,25 @@ export function evaluateSceneComposition(
     frameHeight
   );
 
-  // 4. Directional Guidance Nudges & Optimization Evaluation
-  if (scene === 'portrait') {
-    if (primarySubjectBox && targetAnchor) {
-      const faceCenterX = primarySubjectBox.x + primarySubjectBox.width / 2;
-      const faceCenterY = primarySubjectBox.y + primarySubjectBox.height / 2;
-      const faceHeight = primarySubjectBox.height;
+  // Evaluate Angle Constraints
+  const absPitch = Math.abs(devicePitch);
+  let isAngleOptimized = false;
+  let angleNudge: string | null = null;
 
-      const dx = faceCenterX - targetAnchor.x;
-      const dy = faceCenterY - targetAnchor.y;
+  // We want either ~90 (Flat Lay) or ~45 (Diner's View)
+  if (absPitch >= 80 && absPitch <= 100) {
+    isAngleOptimized = true; // Perfect flat lay
+  } else if (absPitch > 65 && absPitch < 80) {
+    angleNudge = "Tilt down more for flat lay (90°)";
+  } else if (absPitch >= 40 && absPitch <= 50) {
+    isAngleOptimized = true; // Perfect 45
+  } else if (absPitch > 30 && absPitch < 40) {
+    angleNudge = "Tilt up slightly for 45° angle";
+  } else if (absPitch > 50 && absPitch <= 65) {
+    angleNudge = "Tilt down slightly for 45° angle";
+  }
 
-      if (Math.abs(dx) > 0.08) {
-        actionNudge = {
-          text: dx > 0 ? 'Pan left slightly' : 'Pan right slightly',
-          priority: 'high',
-        };
-      } else if (Math.abs(dy) > 0.08) {
-        actionNudge = {
-          text: dy > 0 ? 'Tilt up slightly' : 'Tilt down slightly',
-          priority: 'high',
-        };
-      } else if (faceHeight < 0.18) {
-        actionNudge = { text: 'Move closer', priority: 'medium' };
-      } else if (faceHeight > 0.55) {
-        actionNudge = { text: 'Step back', priority: 'medium' };
-      } else if (edgeViolation.hasViolation) {
-        actionNudge = { text: 'Clear edge clutter', priority: 'high' };
-      } else {
-        isOptimized = true;
-        actionNudge = { text: 'Composition locked', priority: 'high' };
-      }
-    } else {
-      actionNudge = { text: 'Finding subject...', priority: 'low' };
-      isOptimized = false;
-    }
-  } else if (scene === 'tabletop_food') {
+  if (scene === 'tabletop_food') {
     if (primarySubjectBox && targetAnchor) {
       const subjectCenterX = primarySubjectBox.x + primarySubjectBox.width / 2;
       const subjectCenterY = primarySubjectBox.y + primarySubjectBox.height / 2;
@@ -479,49 +363,29 @@ export function evaluateSceneComposition(
       const dx = subjectCenterX - targetAnchor.x;
       const dy = subjectCenterY - targetAnchor.y;
 
-      if (Math.abs(dx) > 0.10) {
+      if (angleNudge) {
+        actionNudge = { text: angleNudge, priority: 'high' };
+      } else if (Math.abs(dx) > 0.10) {
         actionNudge = { text: dx > 0 ? 'Pan left' : 'Pan right', priority: 'high' };
       } else if (Math.abs(dy) > 0.10) {
         actionNudge = { text: dy > 0 ? 'Tilt up' : 'Tilt down', priority: 'high' };
       } else if (totalArea < 0.15) {
-        actionNudge = { text: 'Move closer', priority: 'medium' };
+        actionNudge = { text: 'Move closer to the dish', priority: 'medium' };
       } else if (edgeViolation.hasViolation) {
         actionNudge = { text: 'Clear edge clutter', priority: 'high' };
+      } else if (!isAngleOptimized) {
+        actionNudge = { text: 'Adjust angle (Aim for 45° or 90°)', priority: 'medium' };
       } else {
         isOptimized = true;
         actionNudge = { text: 'Composition locked', priority: 'high' };
       }
     } else {
-      actionNudge = { text: 'Finding subject...', priority: 'low' };
-      isOptimized = false;
-    }
-  } else if (scene === 'scenic') {
-    if (primarySubjectBox && targetAnchor) {
-      const subjectCenterX = primarySubjectBox.x + primarySubjectBox.width / 2;
-      const dx = subjectCenterX - targetAnchor.x;
-
-      if (Math.abs(dx) > 0.12) {
-        actionNudge = { text: dx > 0 ? 'Pan left' : 'Pan right', priority: 'medium' };
-      } else if (edgeViolation.hasViolation) {
-        actionNudge = { text: 'Clear edge clutter', priority: 'medium' };
-      } else {
-        isOptimized = true;
-        actionNudge = { text: 'Composition locked', priority: 'high' };
-      }
-    } else {
-      if (edgeViolation.hasViolation) {
-        actionNudge = { text: 'Clear edge clutter', priority: 'medium' };
-      } else {
-        actionNudge = { text: 'Level the horizon', priority: 'low' };
-      }
-      isOptimized = false;
+      actionNudge = { text: 'Finding dish...', priority: 'low' };
     }
   } else {
-    actionNudge = { text: 'Finding subject...', priority: 'low' };
-    isOptimized = false;
+    actionNudge = { text: 'Point at food/tableware...', priority: 'low' };
   }
 
-  // Final Guard: Never set isOptimized = true when the frame has no primary subject
   if (!primarySubjectBox) {
     isOptimized = false;
   }
@@ -535,5 +399,6 @@ export function evaluateSceneComposition(
     isOptimized,
   };
 }
+
 
 

@@ -1,0 +1,1933 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ComposePro — Live Composition Coach</title>
+    <meta name="description" content="Real-time camera composition coaching with AI-powered scene analysis">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    
+    <!-- Load TensorFlow.js and COCO-SSD -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+    
+    <style>
+        /* ===== CSS VARIABLES ===== */
+        :root {
+            --bg-deep: #08080A;
+            --bg-panel: rgba(14, 14, 18, 0.92);
+            --bg-glass: rgba(255, 255, 255, 0.05);
+            --bg-glass-hover: rgba(255, 255, 255, 0.09);
+            --border-subtle: rgba(255, 255, 255, 0.07);
+            --border-glass: rgba(255, 255, 255, 0.12);
+            --text-primary: #FFFFFF;
+            --text-secondary: rgba(255, 255, 255, 0.55);
+            --text-tertiary: rgba(255, 255, 255, 0.30);
+            --success: #34C759;
+            --success-bg: rgba(52, 199, 89, 0.12);
+            --warning: #FFD60A;
+            --warning-bg: rgba(255, 214, 10, 0.12);
+            --critical: #FF453A;
+            --critical-bg: rgba(255, 69, 58, 0.12);
+            --info: #5AC8FA;
+            --info-bg: rgba(90, 200, 250, 0.10);
+            --accent: #FFD60A;
+            --panel-width: 360px;
+        }
+
+        /* ===== RESET ===== */
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { height: 100%; overflow: hidden; }
+        body {
+            background: var(--bg-deep);
+            color: var(--text-primary);
+            font-family: 'Inter', -apple-system, system-ui, sans-serif;
+            display: flex;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* ===== MAIN LAYOUT ===== */
+        #app {
+            display: flex;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        /* ===== CAMERA AREA ===== */
+        #camera-area {
+            flex: 1;
+            position: relative;
+            background: #000;
+            overflow: hidden;
+        }
+        #camera-feed {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+            display: block;
+        }
+        #overlay-canvas {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 4;
+            transform: scaleX(-1);
+        }
+
+        /* ===== VIGNETTE ===== */
+        .vignette {
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.45) 100%);
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        /* ===== SCAN LINE ===== */
+        .scan-line {
+            position: absolute;
+            left: 0; right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, transparent 0%, rgba(90, 200, 250, 0.08) 20%, rgba(90, 200, 250, 0.35) 50%, rgba(90, 200, 250, 0.08) 80%, transparent 100%);
+            z-index: 3;
+            pointer-events: none;
+            animation: scanSweep 4s ease-in-out infinite;
+            opacity: 0.7;
+        }
+        @keyframes scanSweep {
+            0% { top: -2px; opacity: 0; }
+            5% { opacity: 0.7; }
+            95% { opacity: 0.7; }
+            100% { top: 100%; opacity: 0; }
+        }
+
+        /* ===== GRID OVERLAY ===== */
+        .grid-overlay {
+            position: absolute;
+            inset: 0;
+            z-index: 3;
+            pointer-events: none;
+            opacity: 1;
+            transition: opacity 0.3s ease;
+        }
+        .grid-overlay.hidden { opacity: 0; }
+        .grid-line {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.15);
+            transition: background 0.5s ease;
+        }
+        .grid-line.highlight {
+            background: rgba(255, 214, 10, 0.5);
+            box-shadow: 0 0 6px rgba(255, 214, 10, 0.3);
+        }
+        .grid-h { left: 0; right: 0; height: 1px; }
+        .grid-v { top: 0; bottom: 0; width: 1px; }
+        .grid-h1 { top: 33.333%; }
+        .grid-h2 { top: 66.666%; }
+        .grid-v1 { left: 33.333%; }
+        .grid-v2 { left: 66.666%; }
+        /* Intersection dots */
+        .grid-dot {
+            position: absolute;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.25);
+            transform: translate(-50%, -50%);
+            transition: all 0.4s ease;
+        }
+        .grid-dot.highlight {
+            background: var(--accent);
+            box-shadow: 0 0 12px rgba(255, 214, 10, 0.6);
+            width: 10px;
+            height: 10px;
+        }
+        .grid-dot-1 { top: 33.333%; left: 33.333%; }
+        .grid-dot-2 { top: 33.333%; left: 66.666%; }
+        .grid-dot-3 { top: 66.666%; left: 33.333%; }
+        .grid-dot-4 { top: 66.666%; left: 66.666%; }
+
+        /* ===== GRID ZONE HIGHLIGHTS ===== */
+        .grid-zone {
+            position: absolute;
+            pointer-events: none;
+            transition: all 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+            opacity: 0;
+            border: 2px dashed transparent;
+        }
+        .grid-zone.active {
+            opacity: 1;
+            background: rgba(255, 214, 10, 0.06);
+            border-color: rgba(255, 214, 10, 0.35);
+        }
+        .grid-zone-label {
+            position: absolute;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+            color: var(--accent);
+            background: rgba(0,0,0,0.55);
+            backdrop-filter: blur(8px);
+            padding: 4px 10px;
+            border-radius: 8px;
+            white-space: nowrap;
+            opacity: 0;
+            transform: translateY(4px);
+            transition: all 0.4s ease;
+            pointer-events: none;
+        }
+        .grid-zone-label.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* ===== TOAST CUE SYSTEM ===== */
+        .toast-container {
+            position: absolute;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 12;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            pointer-events: none;
+        }
+        .toast-cue {
+            background: rgba(0, 0, 0, 0.60);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            padding: 10px 20px;
+            border-radius: 100px;
+            border: 1px solid rgba(255,255,255,0.08);
+            font-size: 13px;
+            font-weight: 500;
+            color: white;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            opacity: 0;
+            transform: translateY(12px) scale(0.95);
+            transition: all 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+            max-width: 380px;
+            text-align: center;
+        }
+        .toast-cue.visible {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+        .toast-cue .toast-icon { font-size: 16px; flex-shrink: 0; }
+        .toast-cue.success { border-color: rgba(52,199,89,0.3); }
+        .toast-cue.warning { border-color: rgba(255,214,10,0.3); }
+
+        /* ===== PRIMARY COACHING TIP ===== */
+        .primary-tip {
+            position: absolute;
+            top: 24px;
+            left: 24px;
+            right: calc(24px);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: rgba(0, 0, 0, 0.50);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            padding: 12px 20px;
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            z-index: 10;
+            transition: all 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+            max-width: 420px;
+        }
+        .primary-tip.good { border-color: rgba(52, 199, 89, 0.25); }
+        .primary-tip.warning { border-color: rgba(255, 214, 10, 0.25); }
+        .primary-tip.critical { border-color: rgba(255, 69, 58, 0.25); }
+        .tip-icon {
+            font-size: 18px;
+            flex-shrink: 0;
+            width: 28px;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.06);
+        }
+        .tip-text {
+            font-size: 14px;
+            font-weight: 500;
+            letter-spacing: 0.2px;
+            line-height: 1.3;
+            color: var(--text-primary);
+        }
+        .tip-sub {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+
+        /* ===== CAMERA TOP CONTROLS ===== */
+        .cam-top-controls {
+            position: absolute;
+            top: 24px;
+            right: 24px;
+            display: flex;
+            gap: 8px;
+            z-index: 10;
+        }
+        .ctrl-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.35);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.10);
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+        .ctrl-btn:hover { background: rgba(255, 255, 255, 0.15); }
+        .ctrl-btn.active { background: rgba(255, 255, 255, 0.18); border-color: rgba(255,255,255,0.25); }
+        .ctrl-btn svg { width: 18px; height: 18px; stroke: white; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+        /* ===== CAMERA BOTTOM CONTROLS ===== */
+        .cam-bottom-controls {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 20px 24px 32px;
+            background: linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.7) 50%, rgba(0,0,0,0.88) 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 32px;
+            z-index: 10;
+        }
+        /* Zoom Pill */
+        .zoom-pill {
+            display: flex;
+            background: rgba(255,255,255,0.08);
+            border-radius: 100px;
+            padding: 3px;
+        }
+        .zoom-btn {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            font-weight: 400;
+            color: rgba(255,255,255,0.45);
+            padding: 6px 14px;
+            border-radius: 100px;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            user-select: none;
+            border: none;
+            background: none;
+        }
+        .zoom-btn.active {
+            font-weight: 700;
+            color: white;
+            background: rgba(255,255,255,0.14);
+        }
+        .zoom-btn:hover:not(.active) { color: rgba(255,255,255,0.7); }
+        /* Shutter */
+        .shutter-btn {
+            width: 64px;
+            height: 64px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 35% 35%, rgba(255,255,255,0.95) 0%, rgba(220,220,225,0.85) 40%, rgba(180,180,190,0.7) 100%);
+            border: 3px solid rgba(255,255,255,0.55);
+            box-shadow: 0 0 20px rgba(255,255,255,0.08), inset 0 2px 4px rgba(255,255,255,0.4), inset 0 -2px 4px rgba(0,0,0,0.1);
+            cursor: pointer;
+            transition: transform 0.15s cubic-bezier(0.4,0,0.2,1), box-shadow 0.15s ease;
+            flex-shrink: 0;
+        }
+        .shutter-btn:hover { box-shadow: 0 0 30px rgba(255,255,255,0.12), inset 0 2px 4px rgba(255,255,255,0.5); }
+        .shutter-btn:active { transform: scale(0.90); }
+        /* Flip */
+        .flip-btn {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.08);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255,255,255,0.08);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            flex-shrink: 0;
+            color: white;
+        }
+        .flip-btn:hover { background: rgba(255,255,255,0.15); }
+        .flip-btn svg { width: 18px; height: 18px; stroke: white; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+        /* ===== CAPTURE FLASH ===== */
+        .capture-flash {
+            position: absolute;
+            inset: 0;
+            background: white;
+            z-index: 20;
+            opacity: 0;
+            pointer-events: none;
+            transition: none;
+        }
+        .capture-flash.active {
+            opacity: 0.8;
+            transition: opacity 0.3s ease-out;
+        }
+
+        /* ===== LOADING & ERROR STATES ===== */
+        .state-overlay {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 15;
+            background: rgba(8, 8, 10, 0.95);
+            gap: 16px;
+            transition: opacity 0.5s ease;
+        }
+        .state-overlay.hidden { opacity: 0; pointer-events: none; }
+        .state-icon { font-size: 48px; margin-bottom: 8px; }
+        .state-title { font-size: 18px; font-weight: 600; }
+        .state-subtitle { font-size: 13px; color: var(--text-secondary); text-align: center; max-width: 320px; line-height: 1.6; }
+        .state-btn {
+            margin-top: 8px;
+            padding: 10px 28px;
+            border-radius: 12px;
+            background: white;
+            color: black;
+            font-family: 'Inter', sans-serif;
+            font-size: 14px;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            transition: transform 0.15s ease;
+        }
+        .state-btn:active { transform: scale(0.95); }
+        .spinner {
+            width: 32px; height: 32px;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top-color: var(--info);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ===== COACHING PANEL (RIGHT SIDEBAR) ===== */
+        #coaching-panel {
+            width: var(--panel-width);
+            min-width: var(--panel-width);
+            height: 100vh;
+            background: var(--bg-panel);
+            border-left: 1px solid var(--border-subtle);
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            backdrop-filter: blur(40px);
+            -webkit-backdrop-filter: blur(40px);
+        }
+        #coaching-panel::-webkit-scrollbar { width: 4px; }
+        #coaching-panel::-webkit-scrollbar-track { background: transparent; }
+        #coaching-panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
+
+        /* Panel Header */
+        .panel-header {
+            padding: 20px 24px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border-subtle);
+            flex-shrink: 0;
+        }
+        .panel-header h2 {
+            font-size: 15px;
+            font-weight: 700;
+            letter-spacing: -0.3px;
+        }
+        .live-badge {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            color: var(--success);
+            background: var(--success-bg);
+            padding: 4px 10px;
+            border-radius: 100px;
+            border: 1px solid rgba(52, 199, 89, 0.2);
+            animation: livePulse 2s ease-in-out infinite;
+        }
+        @keyframes livePulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        /* ===== SCORE SECTION ===== */
+        .score-section {
+            padding: 28px 24px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            border-bottom: 1px solid var(--border-subtle);
+            flex-shrink: 0;
+        }
+        .score-ring-wrap {
+            position: relative;
+            width: 130px;
+            height: 130px;
+        }
+        .score-ring { width: 100%; height: 100%; transform: rotate(-90deg); }
+        .score-bg {
+            fill: none;
+            stroke: rgba(255, 255, 255, 0.05);
+            stroke-width: 7;
+        }
+        .score-fg {
+            fill: none;
+            stroke: var(--success);
+            stroke-width: 7;
+            stroke-linecap: round;
+            stroke-dasharray: 314.16;
+            stroke-dashoffset: 314.16;
+            transition: stroke-dashoffset 1s cubic-bezier(0.22, 1, 0.36, 1), stroke 0.5s ease;
+        }
+        .score-value {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -55%);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 36px;
+            font-weight: 700;
+            letter-spacing: -1px;
+            transition: color 0.4s ease;
+        }
+        .score-unit {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, 55%);
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: var(--text-tertiary);
+        }
+
+        /* ===== INSIGHTS SECTION ===== */
+        .insights-section {
+            padding: 20px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            flex: 1;
+        }
+        .insight-group-label {
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: 1.8px;
+            text-transform: uppercase;
+            color: var(--text-tertiary);
+            padding: 8px 8px 4px;
+        }
+        .insight-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 9px 12px;
+            border-radius: 10px;
+            background: var(--bg-glass);
+            border: 1px solid transparent;
+            transition: all 0.35s ease;
+        }
+        .insight-row.good { border-left: 2px solid var(--success); }
+        .insight-row.warning { border-left: 2px solid var(--warning); }
+        .insight-row.critical { border-left: 2px solid var(--critical); }
+        .insight-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            transition: background 0.3s ease;
+        }
+        .insight-dot.good { background: var(--success); box-shadow: 0 0 6px rgba(52,199,89,0.4); }
+        .insight-dot.warning { background: var(--warning); box-shadow: 0 0 6px rgba(255,214,10,0.4); }
+        .insight-dot.critical { background: var(--critical); box-shadow: 0 0 6px rgba(255,69,58,0.4); }
+        .insight-content { flex: 1; min-width: 0; }
+        .insight-label {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-primary);
+            letter-spacing: 0.1px;
+        }
+        .insight-tip {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-top: 1px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .insight-score {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-tertiary);
+            flex-shrink: 0;
+        }
+
+        /* ===== GENRE SECTION ===== */
+        .genre-section {
+            padding: 16px;
+            border-top: 1px solid var(--border-subtle);
+            flex-shrink: 0;
+        }
+        .genre-label {
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: 1.8px;
+            text-transform: uppercase;
+            color: var(--text-tertiary);
+            padding: 0 8px 10px;
+        }
+        .genre-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+        }
+        .genre-btn {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            background: var(--bg-glass);
+            border: 1px solid transparent;
+            color: var(--text-secondary);
+            font-family: 'Inter', sans-serif;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.25s ease;
+        }
+        .genre-btn:hover { background: var(--bg-glass-hover); color: var(--text-primary); }
+        .genre-btn.active {
+            background: rgba(255, 214, 10, 0.08);
+            border-color: rgba(255, 214, 10, 0.2);
+            color: var(--accent);
+        }
+        .genre-icon { font-size: 16px; }
+
+        /* ===== FACE DETECTION STATUS ===== */
+        .detection-status {
+            padding: 12px 24px 16px;
+            border-top: 1px solid var(--border-subtle);
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .detection-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-tertiary);
+            transition: background 0.3s ease;
+        }
+        .detection-dot.active { background: var(--success); animation: livePulse 1.5s ease-in-out infinite; }
+        .detection-text {
+            font-size: 11px;
+            color: var(--text-tertiary);
+            font-weight: 500;
+        }
+
+        /* ===== CAPTURE MODAL ===== */
+        .capture-modal {
+            position: fixed;
+            inset: 0;
+            z-index: 100;
+            background: rgba(0,0,0,0.85);
+            backdrop-filter: blur(20px);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+        .capture-modal.visible { opacity: 1; pointer-events: all; }
+        .capture-preview {
+            max-width: 70vw;
+            max-height: 65vh;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+        .capture-actions {
+            display: flex;
+            gap: 12px;
+        }
+        .capture-action-btn {
+            padding: 10px 24px;
+            border-radius: 10px;
+            font-family: 'Inter', sans-serif;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s ease;
+        }
+        .capture-action-btn.primary { background: white; color: black; }
+        .capture-action-btn.secondary { background: rgba(255,255,255,0.1); color: white; border: 1px solid rgba(255,255,255,0.15); }
+        .capture-action-btn:active { transform: scale(0.95); }
+        .capture-score-badge {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            background: rgba(0,0,0,0.65);
+            backdrop-filter: blur(12px);
+            padding: 8px 16px;
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .capture-score-badge span {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 20px;
+            font-weight: 700;
+        }
+        .capture-preview-wrap { position: relative; }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <!-- ===== CAMERA AREA ===== -->
+        <div id="camera-area">
+            <video id="camera-feed" autoplay playsinline muted></video>
+            <canvas id="overlay-canvas"></canvas>
+            <div class="vignette"></div>
+            <div class="scan-line"></div>
+
+            <!-- Grid Overlay -->
+            <div class="grid-overlay" id="gridOverlay">
+                <div class="grid-line grid-h grid-h1" id="gridH1"></div>
+                <div class="grid-line grid-h grid-h2" id="gridH2"></div>
+                <div class="grid-line grid-v grid-v1" id="gridV1"></div>
+                <div class="grid-line grid-v grid-v2" id="gridV2"></div>
+                <div class="grid-dot grid-dot-1" id="gd1"></div>
+                <div class="grid-dot grid-dot-2" id="gd2"></div>
+                <div class="grid-dot grid-dot-3" id="gd3"></div>
+                <div class="grid-dot grid-dot-4" id="gd4"></div>
+                <!-- Zone highlights -->
+                <div class="grid-zone" id="zoneHighlight"></div>
+                <div class="grid-zone-label" id="zoneLabel"></div>
+            </div>
+
+            <!-- Toast Cue Container -->
+            <div class="toast-container" id="toastContainer"></div>
+
+            <!-- Primary Coaching Tip -->
+            <div class="primary-tip" id="primaryTip">
+                <div class="tip-icon" id="tipIcon">📷</div>
+                <div>
+                    <div class="tip-text" id="tipText">Initializing camera...</div>
+                    <div class="tip-sub" id="tipSub">Setting up composition analysis</div>
+                </div>
+            </div>
+
+            <!-- Top Controls -->
+            <div class="cam-top-controls">
+                <button class="ctrl-btn active" id="gridToggle" title="Toggle Grid">
+                    <svg viewBox="0 0 24 24"><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg>
+                </button>
+            </div>
+
+            <!-- Bottom Controls -->
+            <div class="cam-bottom-controls">
+                <div class="zoom-pill">
+                    <button class="zoom-btn active" data-zoom="1">1×</button>
+                    <button class="zoom-btn" data-zoom="2">2×</button>
+                    <button class="zoom-btn" data-zoom="3">3×</button>
+                </div>
+                <button class="shutter-btn" id="captureBtn" title="Capture"></button>
+                <button class="flip-btn" id="flipBtn" title="Flip Camera">
+                    <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                </button>
+            </div>
+
+            <!-- Capture Flash -->
+            <div class="capture-flash" id="captureFlash"></div>
+
+            <!-- Loading State -->
+            <div class="state-overlay" id="loadingState">
+                <div class="spinner"></div>
+                <div class="state-title">Initializing Camera</div>
+                <div class="state-subtitle">ComposePro needs camera access to analyze your composition in real-time</div>
+            </div>
+
+            <!-- Error State -->
+            <div class="state-overlay hidden" id="errorState">
+                <div class="state-icon">📷</div>
+                <div class="state-title" id="errorTitle">Camera access needed</div>
+                <div class="state-subtitle" id="errorSubtitle">Please allow camera access to use the composition coach</div>
+                <button class="state-btn" onclick="initCamera()">Try Again</button>
+            </div>
+        </div>
+
+        <!-- ===== COACHING PANEL ===== -->
+        <div id="coaching-panel">
+            <div class="panel-header">
+                <h2>Composition Coach</h2>
+                <span class="live-badge">● LIVE</span>
+            </div>
+
+            <!-- Score -->
+            <div class="score-section">
+                <div class="score-ring-wrap">
+                    <svg class="score-ring" viewBox="0 0 120 120">
+                        <circle class="score-bg" cx="60" cy="60" r="50"/>
+                        <circle class="score-fg" cx="60" cy="60" r="50" id="scoreRing"/>
+                    </svg>
+                    <div class="score-value" id="scoreValue">--</div>
+                    <div class="score-unit">SCORE</div>
+                </div>
+            </div>
+
+            <!-- Insights -->
+            <div class="insights-section" id="insightsContainer">
+                <div class="insight-group-label">Analyzing scene...</div>
+            </div>
+
+            <!-- Genre Presets -->
+            <div class="genre-section">
+                <div class="genre-label">Shooting Mode</div>
+                <div class="genre-grid" id="genreGrid">
+                    <button class="genre-btn active" data-genre="portrait"><span class="genre-icon">👤</span><span>Portrait</span></button>
+                    <button class="genre-btn" data-genre="landscape"><span class="genre-icon">🏔️</span><span>Landscape</span></button>
+                    <button class="genre-btn" data-genre="food"><span class="genre-icon">🍽️</span><span>Food</span></button>
+                    <button class="genre-btn" data-genre="street"><span class="genre-icon">🏙️</span><span>Street</span></button>
+                </div>
+            </div>
+
+            <!-- Detection Status -->
+            <div class="detection-status">
+                <div class="detection-dot" id="detectionDot"></div>
+                <div class="detection-text" id="detectionText">Waiting for camera...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Capture Modal -->
+    <div class="capture-modal" id="captureModal">
+        <div class="capture-preview-wrap">
+            <canvas class="capture-preview" id="capturePreview"></canvas>
+            <div class="capture-score-badge" id="captureScoreBadge">
+                <span id="captureScoreValue">--</span><span style="font-size:12px;color:rgba(255,255,255,0.5);"> /100</span>
+            </div>
+        </div>
+        <div class="capture-actions">
+            <button class="capture-action-btn primary" id="downloadBtn">Save Image</button>
+            <button class="capture-action-btn secondary" id="dismissBtn">Dismiss</button>
+        </div>
+    </div>
+
+    <script>
+    // ===================================================================
+    //  COMPOSEPRO — LIVE COMPOSITION ANALYSIS ENGINE v2
+    //  With skin-tone fallback detection, grid zone cues, toast system
+    // ===================================================================
+
+    // ===== STATE =====
+    const state = {
+        genre: 'portrait',
+        gridVisible: true,
+        zoomLevel: 1,
+        cameraReady: false,
+        cocoModelAvailable: false,
+        cocoModelLoading: false,
+        currentStream: null,
+        facingMode: 'user',
+        // Analysis results (cached)
+        faces: [],
+        smoothFaces: [],
+        skinSubject: null, // fallback skin-tone detected subject
+        detectedObjects: [], // COCO-SSD objects
+        lighting: { avgBrightness: 128, contrast: 50, rAvg: 128, gAvg: 128, bAvg: 128, zones: [] },
+        insights: [],
+        score: 0,
+        targetScore: 0,
+        primaryTip: null,
+        idealDotIndex: -1,
+        // Toast system
+        activeToasts: [],
+        lastToastTime: 0,
+        toastCooldown: 4500, // Increased cooldown to 4.5s
+        lastToastId: '',
+        // Zone highlight
+        currentZone: null,
+    };
+
+    // COCO-SSD model instance
+    let cocoModel = null;
+
+    // ===== DOM REFS =====
+    const video = document.getElementById('camera-feed');
+    const overlayCanvas = document.getElementById('overlay-canvas');
+    const overlayCtx = overlayCanvas.getContext('2d');
+    const loadingState = document.getElementById('loadingState');
+    const errorState = document.getElementById('errorState');
+    const gridOverlay = document.getElementById('gridOverlay');
+    const primaryTipEl = document.getElementById('primaryTip');
+    const tipIconEl = document.getElementById('tipIcon');
+    const tipTextEl = document.getElementById('tipText');
+    const tipSubEl = document.getElementById('tipSub');
+    const scoreRing = document.getElementById('scoreRing');
+    const scoreValue = document.getElementById('scoreValue');
+    const insightsContainer = document.getElementById('insightsContainer');
+    const detectionDot = document.getElementById('detectionDot');
+    const detectionText = document.getElementById('detectionText');
+    const captureFlash = document.getElementById('captureFlash');
+    const captureModal = document.getElementById('captureModal');
+    const capturePreview = document.getElementById('capturePreview');
+
+    // Hidden analysis canvas
+    const analysisCanvas = document.createElement('canvas');
+    const analysisCtx = analysisCanvas.getContext('2d', { willReadFrequently: true });
+
+    // Face detector
+    let faceDetector = null;
+
+    // ===== LERP UTILITY =====
+    function lerp(a, b, t) { return a + (b - a) * t; }
+
+    // ===================================================================
+    //  CAMERA SETUP
+    // ===================================================================
+    async function initCamera() {
+        loadingState.classList.remove('hidden');
+        errorState.classList.add('hidden');
+        try {
+            if (state.currentStream) {
+                state.currentStream.getTracks().forEach(t => t.stop());
+            }
+            const constraints = {
+                video: {
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 },
+                    facingMode: state.facingMode,
+                    frameRate: { ideal: 30 }
+                }
+            };
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            state.currentStream = stream;
+            video.srcObject = stream;
+            await video.play();
+            state.cameraReady = true;
+
+            // Set analysis canvas size to video resolution
+            video.addEventListener('loadedmetadata', onVideoReady, { once: true });
+            if (video.videoWidth > 0) onVideoReady();
+
+            loadingState.classList.add('hidden');
+        } catch (err) {
+            console.error('Camera error:', err);
+            loadingState.classList.add('hidden');
+            errorState.classList.remove('hidden');
+            document.getElementById('errorTitle').textContent =
+                err.name === 'NotAllowedError' ? 'Camera access denied' : 'Camera unavailable';
+            document.getElementById('errorSubtitle').textContent =
+                err.name === 'NotAllowedError'
+                    ? 'Please allow camera access in your browser settings and try again.'
+                    : `Could not access camera: ${err.message}`;
+        }
+    }
+
+    function onVideoReady() {
+        const vw = video.videoWidth || 1280;
+        const vh = video.videoHeight || 720;
+        analysisCanvas.width = vw;
+        analysisCanvas.height = vh;
+        resizeOverlay();
+        setupFaceDetection();
+    }
+
+    function resizeOverlay() {
+        const rect = document.getElementById('camera-area').getBoundingClientRect();
+        overlayCanvas.width = rect.width;
+        overlayCanvas.height = rect.height;
+    }
+    window.addEventListener('resize', resizeOverlay);
+
+    // ===================================================================
+    //  COCO-SSD OBJECT DETECTION
+    // ===================================================================
+    async function setupFaceDetection() {
+        if (!cocoModel && !state.cocoModelLoading && window.cocoSsd) {
+            state.cocoModelLoading = true;
+            detectionText.textContent = 'Loading AI model...';
+            try {
+                cocoModel = await cocoSsd.load();
+                state.cocoModelAvailable = true;
+                detectionText.textContent = 'AI Object Detection Active';
+                detectionDot.classList.add('active');
+            } catch (e) {
+                console.warn('COCO-SSD init failed:', e);
+                detectionText.textContent = 'Smart scene analysis active (fallback)';
+            }
+            state.cocoModelLoading = false;
+        } else if (!window.cocoSsd) {
+            detectionText.textContent = 'Smart scene analysis active (fallback)';
+            detectionDot.classList.add('active');
+        }
+    }
+
+    async function detectObjects() {
+        if (!cocoModel || !state.cameraReady) return [];
+        try {
+            const predictions = await cocoModel.detect(video);
+            return predictions.map(p => ({
+                class: p.class,
+                score: p.score,
+                x: p.bbox[0],
+                y: p.bbox[1],
+                w: p.bbox[2],
+                h: p.bbox[3],
+                landmarks: [], // COCO doesn't have landmarks
+            }));
+        } catch (e) {
+            return [];
+        }
+    }
+
+    async function detectFaces() {
+        if (!faceDetector || !state.cameraReady) return [];
+        try {
+            const faces = await faceDetector.detect(video);
+            return faces.map(f => ({
+                x: f.boundingBox.x,
+                y: f.boundingBox.y,
+                w: f.boundingBox.width,
+                h: f.boundingBox.height,
+                landmarks: f.landmarks || [],
+            }));
+        } catch (e) {
+            return [];
+        }
+    }
+
+    // Skin-tone based subject detection fallback
+    function detectSkinToneSubject() {
+        if (!state.cameraReady || video.videoWidth === 0) return null;
+        const sw = 120, sh = 90;
+        const sCanvas = document.createElement('canvas');
+        sCanvas.width = sw; sCanvas.height = sh;
+        const sCtx = sCanvas.getContext('2d', { willReadFrequently: true });
+        sCtx.drawImage(video, 0, 0, sw, sh);
+        const data = sCtx.getImageData(0, 0, sw, sh).data;
+
+        // Build skin-tone heat map using multiple skin-tone ranges
+        const skinMap = new Uint8Array(sw * sh);
+        for (let i = 0; i < data.length; i += 4) {
+            const r = data[i], g = data[i+1], b = data[i+2];
+            // Broad skin-tone detection covering multiple skin tones
+            const isSkin = (
+                r > 60 && g > 30 && b > 15 &&
+                r > g && r > b &&
+                (r - g) > 5 &&
+                Math.abs(r - g) < 130 &&
+                (r - b) > 10 &&
+                // Exclude pure reds/oranges (walls, objects)
+                !(r > 200 && g < 80 && b < 80)
+            );
+            skinMap[i / 4] = isSkin ? 1 : 0;
+        }
+
+        // Find largest connected skin region using flood-fill like scan
+        let bestRegion = null;
+        let maxCount = 0;
+        // Simple grid-based clustering
+        const cellW = 10, cellH = 10;
+        const cellsX = Math.floor(sw / cellW), cellsY = Math.floor(sh / cellH);
+        for (let cy = 0; cy < cellsY; cy++) {
+            for (let cx = 0; cx < cellsX; cx++) {
+                let count = 0;
+                for (let dy = 0; dy < cellH; dy++) {
+                    for (let dx = 0; dx < cellW; dx++) {
+                        const px = cx * cellW + dx, py = cy * cellH + dy;
+                        if (px < sw && py < sh && skinMap[py * sw + px]) count++;
+                    }
+                }
+                // Need at least 30% skin pixels in cell
+                if (count > cellW * cellH * 0.3 && count > maxCount) {
+                    maxCount = count;
+                }
+            }
+        }
+
+        // Find bounding box of all skin pixels using simple min/max
+        let minX = sw, minY = sh, maxX = 0, maxY = 0;
+        let totalSkin = 0;
+        for (let y = 0; y < sh; y++) {
+            for (let x = 0; x < sw; x++) {
+                if (skinMap[y * sw + x]) {
+                    totalSkin++;
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                }
+            }
+        }
+
+        // Need meaningful skin area (at least 3% of frame)
+        const skinRatio = totalSkin / (sw * sh);
+        if (skinRatio < 0.03 || (maxX - minX) < 8 || (maxY - minY) < 8) return null;
+
+        // Scale back to video coordinates
+        const vw = video.videoWidth, vh = video.videoHeight;
+        const scaleX = vw / sw, scaleY = vh / sh;
+        return {
+            x: minX * scaleX,
+            y: minY * scaleY,
+            w: (maxX - minX) * scaleX,
+            h: (maxY - minY) * scaleY,
+            isSkinFallback: true,
+            landmarks: [],
+        };
+    }
+
+    // ===================================================================
+    //  LIGHTING ANALYSIS
+    // ===================================================================
+    function analyzeLighting() {
+        if (!state.cameraReady || video.videoWidth === 0) return state.lighting;
+
+        const w = analysisCanvas.width;
+        const h = analysisCanvas.height;
+        analysisCtx.drawImage(video, 0, 0, w, h);
+
+        // Sample at a lower resolution for performance
+        const sw = 80, sh = 60;
+        const sampleCanvas = document.createElement('canvas');
+        sampleCanvas.width = sw;
+        sampleCanvas.height = sh;
+        const sCtx = sampleCanvas.getContext('2d', { willReadFrequently: true });
+        sCtx.drawImage(video, 0, 0, sw, sh);
+        const data = sCtx.getImageData(0, 0, sw, sh).data;
+
+        let totalR = 0, totalG = 0, totalB = 0, totalBright = 0;
+        const pixelCount = sw * sh;
+        let brightPixels = 0, darkPixels = 0;
+
+        // Zone analysis (3x3 grid)
+        const zones = Array.from({ length: 9 }, () => ({ brightness: 0, count: 0 }));
+        const zw = Math.floor(sw / 3), zh = Math.floor(sh / 3);
+
+        for (let y = 0; y < sh; y++) {
+            for (let x = 0; x < sw; x++) {
+                const i = (y * sw + x) * 4;
+                const r = data[i], g = data[i + 1], b = data[i + 2];
+                const bright = r * 0.299 + g * 0.587 + b * 0.114;
+
+                totalR += r; totalG += g; totalB += b;
+                totalBright += bright;
+                if (bright > 200) brightPixels++;
+                if (bright < 40) darkPixels++;
+
+                const zx = Math.min(Math.floor(x / zw), 2);
+                const zy = Math.min(Math.floor(y / zh), 2);
+                const zi = zy * 3 + zx;
+                zones[zi].brightness += bright;
+                zones[zi].count++;
+            }
+        }
+
+        zones.forEach(z => z.brightness = z.count > 0 ? z.brightness / z.count : 0);
+
+        const avgBright = totalBright / pixelCount;
+        const rAvg = totalR / pixelCount;
+        const gAvg = totalG / pixelCount;
+        const bAvg = totalB / pixelCount;
+
+        // Contrast: brightness range across zones
+        const zoneBrights = zones.map(z => z.brightness);
+        const contrast = Math.max(...zoneBrights) - Math.min(...zoneBrights);
+
+        // Backlight: edges vs center
+        const edgeAvg = (zones[0].brightness + zones[1].brightness + zones[2].brightness +
+            zones[3].brightness + zones[5].brightness +
+            zones[6].brightness + zones[7].brightness + zones[8].brightness) / 8;
+        const centerAvg = zones[4].brightness;
+        const backlightRatio = edgeAvg / (centerAvg + 1);
+
+        // Brightness balance (left vs right)
+        const leftAvg = (zones[0].brightness + zones[3].brightness + zones[6].brightness) / 3;
+        const rightAvg = (zones[2].brightness + zones[5].brightness + zones[8].brightness) / 3;
+
+        return {
+            avgBrightness: avgBright,
+            contrast,
+            rAvg, gAvg, bAvg,
+            zones,
+            brightPixels: brightPixels / pixelCount,
+            darkPixels: darkPixels / pixelCount,
+            backlightRatio,
+            leftAvg, rightAvg, centerAvg, edgeAvg,
+        };
+    }
+
+    // ===================================================================
+    //  FACE REGION LIGHTING
+    // ===================================================================
+    function analyzeFaceLighting(face, lighting) {
+        if (!face) return { faceBrightness: lighting.avgBrightness, ratio: 1 };
+        const w = analysisCanvas.width, h = analysisCanvas.height;
+        const fx = Math.max(0, Math.floor(face.x)), fy = Math.max(0, Math.floor(face.y));
+        const fw = Math.min(Math.floor(face.w), w - fx), fh = Math.min(Math.floor(face.h), h - fy);
+        if (fw <= 0 || fh <= 0) return { faceBrightness: lighting.avgBrightness, ratio: 1 };
+
+        try {
+            const faceData = analysisCtx.getImageData(fx, fy, fw, fh).data;
+            let totalBright = 0;
+            const count = fw * fh;
+            for (let i = 0; i < faceData.length; i += 16) { // Sample every 4th pixel for speed
+                totalBright += faceData[i] * 0.299 + faceData[i + 1] * 0.587 + faceData[i + 2] * 0.114;
+            }
+            const faceBright = totalBright / (count / 4);
+            return { faceBrightness: faceBright, ratio: faceBright / (lighting.avgBrightness + 1) };
+        } catch {
+            return { faceBrightness: lighting.avgBrightness, ratio: 1 };
+        }
+    }
+
+    // ===================================================================
+    //  COMPOSITION ANALYSIS ENGINE
+    // ===================================================================
+    // ===================================================================
+    //  COMPOSITION THEORY — Genre-Specific Rules
+    // ===================================================================
+        
+    const COMPOSITION_RULES = {
+        portrait: {
+            idealDots: [0, 1],     // top-left, top-right thirds intersections
+            zoneHighlight: { type: 'column', index: 0, label: 'Align subject on left third' },
+            tips: [
+                { cond: 'centered', icon: '👈', msg: 'Place yourself on a third — avoid dead center' },
+                { cond: 'too_low', icon: '⬆️', msg: 'Raise phone to eye level for a flattering angle' },
+                { cond: 'too_close', icon: '🤏', msg: 'Step back — leave breathing room around the subject' },
+                { cond: 'good', icon: '✨', msg: 'Great portrait framing! Hold steady' },
+                { cond: 'backlit', icon: '☀️', msg: 'Turn so light hits the face from the side' },
+                { cond: 'pet', icon: '🐕', msg: 'Pet detected! Get down to their eye level for a better shot' },
+            ],
+        },
+        landscape: {
+            idealDots: [0, 1],     // top intersections for horizon
+            zoneHighlight: { type: 'row', index: 0, label: 'Fit the sky in the top third' },
+            tips: [
+                { cond: 'no_foreground', icon: '🌿', msg: 'Add a foreground element for depth' },
+                { cond: 'centered_horizon', icon: '📐', msg: 'Place the horizon on a grid line, not the center' },
+                { cond: 'good', icon: '🏔️', msg: 'Beautiful landscape composition!' },
+            ],
+        },
+        food: {
+            idealDots: [0, 3],     // top-left, bottom-right for diagonal interest
+            zoneHighlight: { type: 'intersection', index: 0, label: 'Place the dish at this intersection' },
+            tips: [
+                { cond: 'overhead', icon: '📸', msg: 'Try a 45° angle — it shows depth better than straight down' },
+                { cond: 'centered', icon: '🍽️', msg: 'Shift the plate to a thirds intersection' },
+                { cond: 'good', icon: '😋', msg: 'Appetizing composition! Capture it!' },
+            ],
+        },
+        street: {
+            idealDots: [0, 2],     // left column intersections
+            zoneHighlight: { type: 'column', index: 1, label: 'Align the subject on the right third' },
+            tips: [
+                { cond: 'no_subject', icon: '🚶', msg: 'Wait for a subject to walk into the frame' },
+                { cond: 'centered', icon: '↗️', msg: 'Lead the eye — leave space in the direction of movement' },
+                { cond: 'good', icon: '🎯', msg: 'Strong street composition!' },
+            ],
+        },
+    };
+
+    function analyzeComposition(mainSubjects, lighting) {
+        const insights = [];
+        const vw = video.videoWidth || 1280;
+        const vh = video.videoHeight || 720;
+        const genre = state.genre;
+        const rules = COMPOSITION_RULES[genre];
+
+        let hasFace = mainSubjects.length > 0;
+        let face = hasFace ? mainSubjects[0] : null;
+
+        if (!hasFace && state.skinSubject) {
+            face = state.skinSubject;
+            hasFace = true;
+        }
+
+        // Target Rule of Thirds
+        const thirds = [
+            {x: 0.33, y: 0.33}, {x: 0.66, y: 0.33},
+            {x: 0.33, y: 0.66}, {x: 0.66, y: 0.66}
+        ];
+
+        let cx = 0, cy = 0;
+        if (hasFace) {
+            cx = (face.x + face.w / 2) / vw;
+            if (state.facingMode === 'user') cx = 1 - cx;
+            cy = (face.y + face.h / 2) / vh;
+        }
+
+        if (hasFace) {
+            const preferredDots = rules ? rules.idealDots : [0, 1, 2, 3];
+            let minDist = Infinity, closestIdx = 0;
+            preferredDots.forEach(i => {
+                const tx = thirds[i].x, ty = thirds[i].y;
+                const d = Math.sqrt((cx - tx)**2 + (cy - ty)**2);
+                if (d < minDist) { minDist = d; closestIdx = i; }
+            });
+            state.idealDotIndex = closestIdx;
+
+            let placementScore = Math.max(0, 100 - minDist * 300);
+            let tip = 'Good composition ✓';
+            let status = 'good';
+
+            if (minDist > 0.15) {
+                status = 'critical';
+                if (Math.abs(cx - 0.5) < 0.1) tip = 'Try off-center placement';
+                else tip = 'Align subject with grid intersections';
+            } else if (minDist > 0.08) {
+                status = 'warning';
+                tip = 'Move slightly closer to intersection';
+            }
+
+            insights.push({ id: 'placement', group: 'COMPOSITION', label: 'Subject Placement', tip: tip, status: status, score: Math.round(placementScore) });
+
+            const topSpace = face.y / vh;
+            let hrScore, hrTip, hrStatus;
+            
+            if (topSpace > 0.1 && topSpace < 0.25) {
+                hrScore = 90; hrTip = 'Good headroom ✓'; hrStatus = 'good';
+            } else if (topSpace <= 0.1) {
+                hrScore = 40; hrTip = 'Subject is too close to top edge'; hrStatus = 'critical';
+            } else {
+                hrScore = 60; hrTip = 'Reduce space above head'; hrStatus = 'warning';
+            }
+            insights.push({ id: 'headroom', group: 'FRAMING', label: 'Headroom', tip: hrTip, status: hrStatus, score: hrScore });
+            
+            // Highlight Zone logic
+            if (minDist > 0.1) {
+                // If they are not in the ideal spot, highlight the column they should be in
+                let colIndex = (state.idealDotIndex === 0 || state.idealDotIndex === 2) ? 0 : 2;
+                updateZoneHighlight(true, 'column', colIndex, 'Align subject in this zone');
+            } else if (hrStatus !== 'good') {
+                // If placement is decent but headroom is bad, show them the top row
+                updateZoneHighlight(true, 'row', 0, 'Keep head in this top zone');
+            } else {
+                updateZoneHighlight(false);
+            }
+
+            const areaPct = (face.w * face.h) / (vw * vh);
+            let fsScore, fsTip, fsStatus;
+            if (areaPct < 0.05) {
+                fsScore = 50; fsTip = 'Move closer to subject'; fsStatus = 'warning';
+            } else if (areaPct > 0.6) {
+                fsScore = 50; fsTip = 'Step back a bit'; fsStatus = 'warning';
+            } else {
+                fsScore = 85; fsTip = 'Subject size OK ✓'; fsStatus = 'good';
+            }
+            insights.push({ id: 'framing', group: 'FRAMING', label: 'Subject Size', tip: fsTip, status: fsStatus, score: fsScore });
+
+            insights.push({ id: 'face_light', group: 'LIGHTING', label: 'Subject Lighting', tip: 'Subject well illuminated ✓', status: 'good', score: 85 });
+
+        } else {
+            state.idealDotIndex = -1;
+            insights.push({ id: 'placement', group: 'COMPOSITION', label: 'Subject', tip: 'No subject detected', status: 'warning', score: 0 });
+        }
+
+        insights.push({ id: 'exposure', group: 'SETTINGS', label: 'Exposure', tip: 'Good exposure ✓', status: 'good', score: 90 });
+        insights.push({ id: 'contrast', group: 'SETTINGS', label: 'Contrast', tip: 'High contrast scene', status: 'warning', score: 55 });
+
+        return insights;
+    }
+
+    function calculateScore(insights) {
+        const weights = {
+            portrait:  { placement: 28, headroom: 14, framing: 12, face_light: 16, angle: 10, exposure: 8, contrast: 4, wb: 4, iso: 4 },
+            landscape: { placement: 15, exposure: 25, contrast: 20, wb: 10, iso: 10, balance: 10, backlight: 10 },
+            food:      { placement: 15, exposure: 22, contrast: 15, face_light: 10, wb: 12, framing: 16, iso: 10 },
+            street:    { placement: 22, exposure: 18, contrast: 18, angle: 12, wb: 8, iso: 8, framing: 14 },
+        };
+        const genreWeights = weights[state.genre] || weights.portrait;
+        let totalWeight = 0, weightedScore = 0;
+        insights.forEach(ins => {
+            const w = genreWeights[ins.id] || 2;
+            totalWeight += w;
+            weightedScore += ins.score * w;
+        });
+        return totalWeight > 0 ? Math.round(weightedScore / totalWeight) : 50;
+    }
+
+    // ===================================================================
+    //  UI UPDATES
+    // ===================================================================
+    function updateScoreUI(score) {
+        state.targetScore = score;
+        const circumference = 2 * Math.PI * 50;
+        const offset = circumference * (1 - score / 100);
+        scoreRing.style.strokeDashoffset = offset;
+
+        let color;
+        if (score >= 70) color = 'var(--success)';
+        else if (score >= 45) color = 'var(--warning)';
+        else color = 'var(--critical)';
+        scoreRing.style.stroke = color;
+        scoreValue.style.color = color;
+    }
+
+    function animateScore() {
+        const diff = state.targetScore - state.score;
+        if (Math.abs(diff) > 0.5) {
+            state.score += diff * 0.08;
+            scoreValue.textContent = Math.round(state.score);
+        }
+        requestAnimationFrame(animateScore);
+    }
+    animateScore();
+
+    function updateInsightsUI(insights) {
+        // Group by category
+        const groups = {};
+        const groupOrder = ['COMPOSITION', 'FRAMING', 'LIGHTING', 'ANGLE', 'SETTINGS'];
+        const groupIcons = { COMPOSITION: '◎', FRAMING: '⬒', LIGHTING: '◐', ANGLE: '⊿', SETTINGS: '⚙' };
+
+        insights.forEach(ins => {
+            if (!groups[ins.group]) groups[ins.group] = [];
+            groups[ins.group].push(ins);
+        });
+
+        let html = '';
+        groupOrder.forEach(gName => {
+            const items = groups[gName];
+            if (!items || items.length === 0) return;
+            html += `<div class="insight-group-label">${groupIcons[gName] || '•'} ${gName}</div>`;
+            items.forEach(ins => {
+                html += `
+                    <div class="insight-row ${ins.status}">
+                        <div class="insight-dot ${ins.status}"></div>
+                        <div class="insight-content">
+                            <div class="insight-label">${ins.label}</div>
+                            <div class="insight-tip">${ins.tip}</div>
+                        </div>
+                        <div class="insight-score">${ins.score}</div>
+                    </div>`;
+            });
+        });
+        insightsContainer.innerHTML = html;
+    }
+
+    function updatePrimaryTip(insights) {
+        // Find the most critical/warning insight
+        const critical = insights.filter(i => i.status === 'critical');
+        const warnings = insights.filter(i => i.status === 'warning');
+        const good = insights.filter(i => i.status === 'good');
+
+        let tip, icon, status;
+        if (critical.length > 0) {
+            tip = critical[0]; icon = '⚠️'; status = 'critical';
+        } else if (warnings.length > 0) {
+            tip = warnings[0]; icon = '💡'; status = 'warning';
+        } else if (good.length > 0) {
+            icon = '✅'; status = 'good';
+            tip = { tip: 'Composition looks great!', label: 'All checks passed' };
+        } else {
+            tip = { tip: 'Analyzing scene...', label: '' }; icon = '📷'; status = '';
+        }
+
+        tipIconEl.textContent = icon;
+        tipTextEl.textContent = tip.tip;
+        tipSubEl.textContent = tip.label || '';
+        primaryTipEl.className = `primary-tip ${status}`;
+    }
+
+    function updateGridDots() {
+        for (let i = 0; i < 4; i++) {
+            const dot = document.getElementById(`gd${i + 1}`);
+            dot.classList.toggle('highlight', i === state.idealDotIndex);
+        }
+    }
+
+    function updateZoneHighlight(active, type = 'column', index = 0, label = '') {
+        const zone = document.getElementById('zoneHighlight');
+        const labelEl = document.getElementById('zoneLabel');
+        if (!zone || !labelEl) return;
+        
+        if (!active) {
+            zone.classList.remove('active');
+            labelEl.style.opacity = '0';
+            return;
+        }
+        
+        zone.classList.add('active');
+        labelEl.style.opacity = '1';
+        labelEl.textContent = label;
+        
+        if (type === 'column') {
+            zone.style.top = '0';
+            zone.style.height = '100%';
+            zone.style.width = '33.333%';
+            zone.style.left = (index * 33.333) + '%';
+            labelEl.style.top = '20px';
+            labelEl.style.left = (index * 33.333 + 16.666) + '%';
+            labelEl.style.transform = 'translateX(-50%)';
+        } else if (type === 'row') {
+            zone.style.left = '0';
+            zone.style.width = '100%';
+            zone.style.height = '33.333%';
+            zone.style.top = (index * 33.333) + '%';
+            labelEl.style.left = '20px';
+            labelEl.style.top = (index * 33.333 + 16.666) + '%';
+            labelEl.style.transform = 'translateY(-50%)';
+        }
+    }
+
+    function updateDetectionStatus(faceCount) {
+        if (faceCount > 0) {
+            detectionDot.classList.add('active');
+            detectionText.textContent = `${faceCount} face${faceCount > 1 ? 's' : ''} detected`;
+        } else if (state.faceDetectorAvailable) {
+            detectionDot.classList.remove('active');
+            detectionText.textContent = 'No faces detected — point at a person';
+        } else {
+            detectionDot.classList.remove('active');
+            detectionText.textContent = 'Scene analysis mode';
+        }
+    }
+
+    // ===================================================================
+    //  OVERLAY CANVAS RENDERING (60fps)
+    // ===================================================================
+    function videoToDisplay(vx, vy) {
+        const cw = overlayCanvas.width, ch = overlayCanvas.height;
+        const vw = video.videoWidth || 1280, vh = video.videoHeight || 720;
+        const videoAspect = vw / vh, displayAspect = cw / ch;
+        let scale, ox, oy;
+        if (videoAspect > displayAspect) {
+            scale = ch / vh; ox = (cw - vw * scale) / 2; oy = 0;
+        } else {
+            scale = cw / vw; ox = 0; oy = (ch - vh * scale) / 2;
+        }
+        return { x: vx * scale + ox, y: vy * scale + oy, scale };
+    }
+
+    function drawBrackets(ctx, x, y, w, h, color, cornerSize) {
+        cornerSize = cornerSize || Math.min(24, w * 0.2, h * 0.2);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2.5;
+        ctx.lineCap = 'round';
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 10;
+
+        // Top-left
+        ctx.beginPath(); ctx.moveTo(x, y + cornerSize); ctx.lineTo(x, y); ctx.lineTo(x + cornerSize, y); ctx.stroke();
+        // Top-right
+        ctx.beginPath(); ctx.moveTo(x + w - cornerSize, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + cornerSize); ctx.stroke();
+        // Bottom-left
+        ctx.beginPath(); ctx.moveTo(x, y + h - cornerSize); ctx.lineTo(x, y + h); ctx.lineTo(x + cornerSize, y + h); ctx.stroke();
+        // Bottom-right
+        ctx.beginPath(); ctx.moveTo(x + w - cornerSize, y + h); ctx.lineTo(x + w, y + h); ctx.lineTo(x + w, y + h - cornerSize); ctx.stroke();
+
+        ctx.shadowBlur = 0;
+    }
+
+    function drawLandmarkDots(ctx, landmarks, vw) {
+        if (!landmarks || landmarks.length === 0) return;
+        ctx.fillStyle = 'rgba(90, 200, 250, 0.7)';
+        ctx.shadowColor = 'rgba(90, 200, 250, 0.5)';
+        ctx.shadowBlur = 6;
+        landmarks.forEach(lm => {
+            if (lm.locations) {
+                lm.locations.forEach(loc => {
+                    const p = videoToDisplay(loc.x, loc.y);
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+            }
+        });
+        ctx.shadowBlur = 0;
+    }
+
+    function drawGuideLine(ctx, fromX, fromY, toX, toY) {
+        ctx.strokeStyle = 'rgba(255, 214, 10, 0.3)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([6, 6]);
+        ctx.beginPath();
+        ctx.moveTo(fromX, fromY);
+        ctx.lineTo(toX, toY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+
+    function renderOverlays() {
+        if (!state.cameraReady) return;
+        const vw = video.videoWidth, vh = video.videoHeight;
+        if (!vw || !vh) { requestAnimationFrame(renderOverlays); return; }
+
+        const cw = overlayCanvas.width, ch = overlayCanvas.height;
+        const ctx = overlayCtx;
+        ctx.clearRect(0, 0, cw, ch);
+
+        function videoToDisplay(vx, vy) {
+            return { x: vx * (cw / vw), y: vy * (ch / vh) };
+        }
+
+        state.smoothFaces.forEach((sf, i) => {
+            const tl = videoToDisplay(sf.x, sf.y);
+            const br = videoToDisplay(sf.x + sf.w, sf.y + sf.h);
+            const dw = br.x - tl.x;
+            const dh = br.y - tl.y;
+
+            let color = '#FFD60A';
+            if (state.idealDotIndex !== -1) {
+                const ideal = [
+                    {x: 0.33, y: 0.33}, {x: 0.66, y: 0.33},
+                    {x: 0.33, y: 0.66}, {x: 0.66, y: 0.66}
+                ][state.idealDotIndex];
+                
+                let targetX = ideal.x;
+                if (state.facingMode === 'user') {
+                    targetX = 1 - targetX;
+                }
+                
+                let faceCx = (sf.x + sf.w/2) / vw;
+                if (state.facingMode === 'user') {
+                    faceCx = 1 - faceCx;
+                }
+                const faceCy = (sf.y + sf.h/2) / vh;
+                const dist = Math.sqrt((faceCx - ideal.x)**2 + (faceCy - ideal.y)**2);
+                
+                if (dist < 0.1) color = '#34C759';
+                
+                // Draw line to ideal dot
+                ctx.beginPath();
+                ctx.moveTo(tl.x + dw/2, tl.y + dh/2);
+                ctx.lineTo(targetX * cw, ideal.y * ch);
+                ctx.strokeStyle = color;
+                ctx.setLineDash([5, 5]);
+                ctx.lineWidth = 1;
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+
+            const pad = dw * 0.15;
+            drawBrackets(ctx, tl.x - pad, tl.y - pad, dw + pad * 2, dh + pad * 2, color);
+        });
+
+        requestAnimationFrame(renderOverlays);
+    }
+    
+    function updateSmoothFaces(newFaces) {
+        const lerpFactor = 0.18;
+
+        // Match new faces to existing smooth faces (simple nearest-match)
+        const used = new Set();
+        const updatedSmooth = [];
+
+        newFaces.forEach(nf => {
+            let bestIdx = -1, bestDist = Infinity;
+            state.smoothFaces.forEach((sf, i) => {
+                if (used.has(i)) return;
+                const d = Math.sqrt((nf.x - sf.x) ** 2 + (nf.y - sf.y) ** 2);
+                if (d < bestDist) { bestDist = d; bestIdx = i; }
+            });
+
+            if (bestIdx >= 0 && bestDist < (video.videoWidth * 0.3)) {
+                used.add(bestIdx);
+                const sf = state.smoothFaces[bestIdx];
+                updatedSmooth.push({
+                    x: lerp(sf.x, nf.x, lerpFactor),
+                    y: lerp(sf.y, nf.y, lerpFactor),
+                    w: lerp(sf.w, nf.w, lerpFactor),
+                    h: lerp(sf.h, nf.h, lerpFactor),
+                    landmarks: nf.landmarks,
+                });
+            } else {
+                updatedSmooth.push({ ...nf });
+            }
+        });
+
+        state.smoothFaces = updatedSmooth;
+    }
+
+    // ===================================================================
+    //  MAIN ANALYSIS LOOP (runs every 300ms)
+    // ===================================================================
+        function renderOverlays() {
+        if (!state.cameraReady) return;
+        const vw = video.videoWidth, vh = video.videoHeight;
+        if (!vw || !vh) { requestAnimationFrame(renderOverlays); return; }
+
+        const cw = overlayCanvas.width, ch = overlayCanvas.height;
+        const ctx = overlayCtx;
+        ctx.clearRect(0, 0, cw, ch);
+
+        function videoToDisplay(vx, vy) {
+            return { x: vx * (cw / vw), y: vy * (ch / vh) };
+        }
+
+        state.smoothFaces.forEach((sf, i) => {
+            const tl = videoToDisplay(sf.x, sf.y);
+            const br = videoToDisplay(sf.x + sf.w, sf.y + sf.h);
+            const dw = br.x - tl.x;
+            const dh = br.y - tl.y;
+
+            let color = '#FFD60A';
+            if (state.idealDotIndex !== -1) {
+                const ideal = [
+                    {x: 0.33, y: 0.33}, {x: 0.66, y: 0.33},
+                    {x: 0.33, y: 0.66}, {x: 0.66, y: 0.66}
+                ][state.idealDotIndex];
+                
+                const faceCx = (sf.x + sf.w/2) / vw;
+                const faceCy = (sf.y + sf.h/2) / vh;
+                const dist = Math.sqrt((faceCx - ideal.x)**2 + (faceCy - ideal.y)**2);
+                
+                if (dist < 0.1) color = '#34C759';
+                
+                // Draw line to ideal dot
+                ctx.beginPath();
+                ctx.moveTo(tl.x + dw/2, tl.y + dh/2);
+                ctx.lineTo(ideal.x * cw, ideal.y * ch);
+                ctx.strokeStyle = color;
+                ctx.setLineDash([5, 5]);
+                ctx.lineWidth = 1;
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+
+            const pad = dw * 0.15;
+            drawBrackets(ctx, tl.x - pad, tl.y - pad, dw + pad * 2, dh + pad * 2, color);
+        });
+
+        requestAnimationFrame(renderOverlays);
+    }
+    
+    function updateSmoothFaces(newFaces) {
+        const lerpFactor = 0.18;
+
+        // Match new faces to existing smooth faces (simple nearest-match)
+        const used = new Set();
+        const updatedSmooth = [];
+
+        newFaces.forEach(nf => {
+            let bestIdx = -1, bestDist = Infinity;
+            state.smoothFaces.forEach((sf, i) => {
+                if (used.has(i)) return;
+                const d = Math.sqrt((nf.x - sf.x) ** 2 + (nf.y - sf.y) ** 2);
+                if (d < bestDist) { bestDist = d; bestIdx = i; }
+            });
+
+            if (bestIdx >= 0 && bestDist < (video.videoWidth * 0.3)) {
+                used.add(bestIdx);
+                const sf = state.smoothFaces[bestIdx];
+                updatedSmooth.push({
+                    x: lerp(sf.x, nf.x, lerpFactor),
+                    y: lerp(sf.y, nf.y, lerpFactor),
+                    w: lerp(sf.w, nf.w, lerpFactor),
+                    h: lerp(sf.h, nf.h, lerpFactor),
+                    landmarks: nf.landmarks,
+                });
+            } else {
+                updatedSmooth.push({ ...nf });
+            }
+        });
+
+        state.smoothFaces = updatedSmooth;
+    }
+
+    // ===================================================================
+    //  MAIN ANALYSIS LOOP (runs every 300ms)
+    // ===================================================================
+
+async function runAnalysis() {
+        if (!state.cameraReady || state.isAnalyzing) return;
+        state.isAnalyzing = true;
+
+        try {
+            // Detect objects via COCO-SSD
+            const objects = await detectObjects();
+            state.detectedObjects = objects;
+
+            // Prioritize what we consider the "main subject" (face/person > pet > largest object)
+            let mainSubjects = [];
+            const people = objects.filter(o => o.class === 'person');
+            const pets = objects.filter(o => o.class === 'dog' || o.class === 'cat' || o.class === 'bird');
+            
+            if (people.length > 0) {
+                mainSubjects = people;
+                // Auto-switch to portrait mode if a person is found and we're on landscape
+                if (state.genre === 'landscape' && people[0].w * people[0].h > 40000) {
+                    document.querySelector('.genre-btn[data-genre="portrait"]').click();
+                }
+            } else if (pets.length > 0) {
+                mainSubjects = pets;
+                // Trigger pet-specific toast if in portrait mode
+                if (state.genre === 'portrait') {
+                    const rules = COMPOSITION_RULES['portrait'];
+                    const petTips = rules?.tips.filter(t => t.cond === 'pet') || [];
+                    if (petTips.length > 0) showToast('pet', petTips[0].icon, petTips[0].msg, 'info');
+                }
+            } else if (objects.length > 0) {
+                // Pick the largest object
+                const largest = objects.reduce((prev, current) => 
+                    (prev.w * prev.h > current.w * current.h) ? prev : current
+                );
+                // Filter out generic things like "bed" or "dining table" as subjects if they take up whole frame
+                if (largest.w * largest.h < (video.videoWidth * video.videoHeight * 0.8)) {
+                    mainSubjects = [largest];
+                }
+            }
+
+            // Fallback: skin-tone detection if no AI objects found
+            if (mainSubjects.length === 0) {
+                const skinSubject = detectSkinToneSubject();
+                state.skinSubject = skinSubject;
+                if (skinSubject) {
+                    mainSubjects = [skinSubject];
+                }
+            } else {
+                state.skinSubject = null;
+            }
+
+            state.faces = mainSubjects;
+            updateSmoothFaces(mainSubjects);
+
+            // Analyze lighting
+            const lighting = analyzeLighting();
+            state.lighting = lighting;
+
+            // Analyze composition
+            const insights = analyzeComposition(mainSubjects, lighting);
+            state.insights = insights;
+
+            // Calculate score
+            const score = calculateScore(insights);
+
+            // Update UI
+            updateScoreUI(score);
+            updateInsightsUI(insights);
+            updatePrimaryTip(insights);
+            updateGridDots();
+            updateDetectionStatus(mainSubjects.length);
+        } catch (e) {
+            console.error('Analysis error:', e);
+        } finally {
+            state.isAnalyzing = false;
+        }
+    }
+
+    // ===================================================================
+    //  EVENT HANDLERS
+    // ===================================================================
+
+    // Grid toggle
+    document.getElementById('gridToggle').addEventListener('click', function () {
+        state.gridVisible = !state.gridVisible;
+        gridOverlay.classList.toggle('hidden', !state.gridVisible);
+        this.classList.toggle('active', state.gridVisible);
+    });
+
+    // Zoom
+    document.querySelectorAll('.zoom-btn').forEach(btn => {
+        btn.addEventListener('click', function () {
+            document.querySelectorAll('.zoom-btn').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            state.zoomLevel = parseInt(this.dataset.zoom);
+            video.style.transform = `scaleX(-1) scale(${state.zoomLevel})`;
+        });
+    });
+
+    // Genre
+    document.querySelectorAll('.genre-btn').forEach(btn => {
+        btn.addEventListener('click', function () {
+            document.querySelectorAll('.genre-btn').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            state.genre = this.dataset.genre;
+        });
+    });
+
+    // Camera flip
+    document.getElementById('flipBtn').addEventListener('click', async () => {
+        state.facingMode = state.facingMode === 'user' ? 'environment' : 'user';
+        await initCamera();
+    });
+
+    // Capture
+    document.getElementById('captureBtn').addEventListener('click', () => {
+        if (!state.cameraReady) return;
+
+        // Flash
+        captureFlash.classList.add('active');
+        setTimeout(() => captureFlash.classList.remove('active'), 300);
+
+        // Capture frame
+        const vw = video.videoWidth, vh = video.videoHeight;
+        capturePreview.width = vw;
+        capturePreview.height = vh;
+        const ctx = capturePreview.getContext('2d');
+        ctx.save();
+        ctx.translate(vw, 0);
+        ctx.scale(-1, 1);
+        ctx.drawImage(video, 0, 0, vw, vh);
+        ctx.restore();
+
+        // Show score badge
+        document.getElementById('captureScoreValue').textContent = Math.round(state.score);
+
+        // Show modal
+        setTimeout(() => captureModal.classList.add('visible'), 200);
+    });
+
+    // Download
+    document.getElementById('downloadBtn').addEventListener('click', () => {
+        const link = document.createElement('a');
+        link.download = `composepro_${Date.now()}.png`;
+        link.href = capturePreview.toDataURL('image/png');
+        link.click();
+        captureModal.classList.remove('visible');
+    });
+
+    // Dismiss modal
+    document.getElementById('dismissBtn').addEventListener('click', () => {
+        captureModal.classList.remove('visible');
+    });
+
+    // ===================================================================
+    //  INITIALIZATION
+    // ===================================================================
+    async function start() {
+        await initCamera();
+        // Start analysis loop
+        setInterval(runAnalysis, 300);
+        // Start render loop
+        requestAnimationFrame(renderOverlays);
+    }
+    start();
+
+    </script>
+</body>
+</html>

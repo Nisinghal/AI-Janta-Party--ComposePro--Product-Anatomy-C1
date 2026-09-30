@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useRef } from "react";
-import { User, Utensils, Mountain, Building, Camera } from "lucide-react";
+import { UtensilsCrossed, Utensils, GlassWater } from "lucide-react";
 import { useCompositionContext } from "../context/CompositionContext";
 import type { GenrePreset } from "../types/composition";
 
@@ -12,11 +12,9 @@ interface GenreOption {
 }
 
 const GENRE_PRESETS: GenreOption[] = [
-  { id: "PEOPLE", label: "People & Poses", icon: User },
-  { id: "FOOD", label: "Food & Tableware", icon: Utensils },
-  { id: "NATURE", label: "Nature & Scenic", icon: Mountain },
-  { id: "STREET", label: "Street & Architecture", icon: Building },
-  { id: "MACRO", label: "Macro & Detail", icon: Camera },
+  { id: "FLAT_LAY", label: "Flat Lay (90°)", icon: UtensilsCrossed },
+  { id: "HERO_SHOT", label: "Hero Shot (45°)", icon: Utensils },
+  { id: "TALL_STACK", label: "Tall Stack (0°)", icon: GlassWater },
 ];
 
 export default function GenreCarousel() {

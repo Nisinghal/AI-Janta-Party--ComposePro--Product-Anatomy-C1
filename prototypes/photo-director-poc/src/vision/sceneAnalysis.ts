@@ -15,10 +15,10 @@ export function assessScene(video: HTMLVideoElement, canvas: HTMLCanvasElement, 
   return { brightness,highlightClip,shadowClip,edgeDensity,subjectContrast,objects,lightTone:brightness<.2||highlightClip>.3?"problem":brightness<.3||highlightClip>.18?"caution":"good",backgroundTone:objects.some(o=>o.isConflict)||edgeDensity>.21?"problem":objects.length>3||edgeDensity>.14?"caution":"good",separationTone:subjectContrast<.07?"problem":subjectContrast<.13?"caution":"good" };
 }
 export function sceneGuidance(scene: SceneAssessment): CompositionGuidance | null {
-  if(scene.brightness<.2)return{type:"READY",message:"Turn the subject toward more light",reason:"The face is too dark for a clear portrait",severity:.9};
-  if(scene.highlightClip>.3)return{type:"READY",message:"Move away from the bright background",reason:"Highlights are overpowering the subject",severity:.85};
-  const conflict=scene.objects.find(o=>o.isConflict);if(conflict)return{type:"READY",message:"Shift to clear the background",reason:`A ${conflict.label} is visually merging with the subject`,severity:.75};
-  if(scene.backgroundTone==="problem")return{type:"READY",message:"Try a cleaner background",reason:"Too many edges are competing with the subject",severity:.65};
-  if(scene.separationTone==="problem")return{type:"READY",message:"Add distance from the background",reason:"The subject and background have similar visual weight",severity:.6};
+  if(scene.brightness<.2)return{type:"READY",message:"Too dark. Move closer to a window.",reason:"The scene is too dark for food photography",severity:.9};
+  if(scene.highlightClip>.3)return{type:"READY",message:"Harsh lighting detected. Soften the light.",reason:"Highlights are overpowering the food",severity:.85};
+  const conflict=scene.objects.find(o=>o.isConflict);if(conflict)return{type:"READY",message:"Shift to clear the background",reason:`A ${conflict.label} is visually merging with the main dish`,severity:.75};
+  if(scene.backgroundTone==="problem")return{type:"READY",message:"Try a cleaner background",reason:"Too many edges are competing with the food",severity:.65};
+  if(scene.separationTone==="problem")return{type:"READY",message:"Add distance from the background",reason:"The dish and background have similar visual weight",severity:.6};
   return null;
 }

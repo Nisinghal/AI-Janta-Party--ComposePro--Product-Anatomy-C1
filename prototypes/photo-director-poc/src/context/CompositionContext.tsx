@@ -20,60 +20,32 @@ export interface PresetBlueprint {
 }
 
 export const PRESET_CONFIGS: Record<GenrePreset, PresetBlueprint> = {
-  PEOPLE: {
-    id: "preset-people",
-    name: "Dynamic Portrait / People",
-    guideType: "diagonal",
-    targetPoints: [
-      { x: 0.38, y: 0.35, label: "eye-line" },
-      { x: 0.65, y: 0.68, label: "body-axis" },
-    ],
-    defaultNudge: "Align eye-line along y: 0.35 and angle body on the diagonal",
-  },
-  FOOD: {
-    id: "preset-food",
-    name: "Culinary Triangle",
-    guideType: "triangle",
-    targetPoints: [
-      { x: 0.5, y: 0.35, label: "pyramid-apex" },
-      { x: 0.28, y: 0.72, label: "pyramid-left" },
-      { x: 0.72, y: 0.72, label: "pyramid-right" },
-    ],
-    defaultNudge: "Frame subject dishes within visual pyramid vertices",
-  },
-  NATURE: {
-    id: "preset-nature",
-    name: "Horizon & Rule of Thirds",
+  FLAT_LAY: {
+    id: "preset-flat-lay",
+    name: "Flat Lay (90°)",
     guideType: "rule_of_thirds",
     targetPoints: [
-      { x: 0.5, y: 0.33, label: "sky-split" },
-      { x: 0.5, y: 0.66, label: "ground-split" },
-      { x: 0.33, y: 0.33, label: "third-top-left" },
-      { x: 0.66, y: 0.33, label: "third-top-right" },
-      { x: 0.33, y: 0.66, label: "third-bottom-left" },
-      { x: 0.66, y: 0.66, label: "third-bottom-right" },
+      { x: 0.5, y: 0.5, label: "center" },
     ],
-    defaultNudge: "Align horizon along sky/ground thirds split",
+    defaultNudge: "Hold parallel to table (90°)",
   },
-  STREET: {
-    id: "preset-street",
-    name: "Street & Architecture",
-    guideType: "horizon",
-    targetPoints: [
-      { x: 0.25, y: 0.5, label: "keystone-left" },
-      { x: 0.75, y: 0.5, label: "keystone-right" },
-      { x: 0.5, y: 0.5, label: "horizon-center" },
-    ],
-    defaultNudge: "Align vertical structures with keystone guides at x: 0.25 and 0.75",
-  },
-  MACRO: {
-    id: "preset-macro",
-    name: "Macro & Close-Up",
+  HERO_SHOT: {
+    id: "preset-hero-shot",
+    name: "Hero Shot (45°)",
     guideType: "triangle",
     targetPoints: [
-      { x: 0.5, y: 0.5, label: "macro-focus" },
+      { x: 0.5, y: 0.65, label: "plate-center" },
     ],
-    defaultNudge: "Center subject in macro target zone",
+    defaultNudge: "Lower to 45° angle",
+  },
+  TALL_STACK: {
+    id: "preset-tall-stack",
+    name: "Tall Stack (0°)",
+    guideType: "rule_of_thirds",
+    targetPoints: [
+      { x: 0.5, y: 0.5, label: "stack-center" },
+    ],
+    defaultNudge: "Shoot straight on (0°)",
   },
 };
 
@@ -98,7 +70,7 @@ export interface CompositionContextValue {
 export const CompositionContext = createContext<CompositionContextValue | undefined>(undefined);
 
 export function CompositionProvider({ children }: { children: React.ReactNode }) {
-  const [activePreset, setActivePreset] = useState<GenrePreset>("PEOPLE");
+  const [activePreset, setActivePreset] = useState<GenrePreset>("FLAT_LAY");
   const [detectedTargets, setDetectedTargets] = useState<ArmaturePoint[]>([]);
   const [opportunity, setOpportunity] = useState<CompositionOpportunity | null>(null);
   const [ruleResult, setRuleResult] = useState<RuleEvaluationResult | null>(null);
