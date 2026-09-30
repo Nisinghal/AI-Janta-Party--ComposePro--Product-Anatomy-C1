@@ -123,6 +123,8 @@ function DirectorCameraInner() {
   const [photo, setPhoto] = useState<string | null>(null);
   // Track whether the camera was ever opened so retake skips the splash
   const [hasOpened, setHasOpened] = useState(false);
+  const [aiAdvice, setAiAdvice] = useState<string | null>(null);
+  const [isAskingAi, setIsAskingAi] = useState(false);
 
   const stopCamera = useCallback(() => {
     cancelAnimationFrame(frameRef.current);
@@ -225,11 +227,7 @@ function DirectorCameraInner() {
         video: { 
           facingMode: { ideal: facing }, 
           width: { ideal: 1920 }, 
-          height: { ideal: 1080 },
-          // Request continuous focus and exposure upfront
-          focusMode: { ideal: "continuous" },
-          exposureMode: { ideal: "continuous" },
-          whiteBalanceMode: { ideal: "continuous" },
+          height: { ideal: 1080 }
         } as any, 
         audio: false 
       }); 
@@ -239,7 +237,7 @@ function DirectorCameraInner() {
       const track = stream.getVideoTracks()[0];
 
       // Apply best-effort focus/exposure/WB constraints immediately
-      await enforceCameraSettings(track);
+      enforceCameraSettings(track).catch(() => {});
 
       // Re-enforce every 4 seconds to fight webcam firmware drift
       focusIntervalRef.current = setInterval(() => {
@@ -247,20 +245,21 @@ function DirectorCameraInner() {
         if (t && t.readyState === "live") enforceCameraSettings(t);
       }, 4000);
 
-      const vision = await FilesetResolver.forVisionTasks("/mediapipe/wasm");
+      // Show camera feed instantly before loading AI models
       setStatus("live");
       setHasOpened(true);
-      if(!objectRef.current){
-        // Track food, tableware, and dining-adjacent objects for better scene understanding
-        objectRef.current = await ObjectDetector.createFromOptions(vision,{baseOptions:{modelAssetPath:"/mediapipe/efficientdet_lite0_uint8.tflite"},runningMode:"VIDEO",scoreThreshold:.3,maxResults:10, categoryAllowlist: [
-          // Food items
-          "pizza", "hot dog", "cake", "sandwich", "donut", "banana", "apple", "orange", "broccoli", "carrot",
-          // Tableware & containers
-          "bowl", "cup", "wine glass", "bottle", "fork", "knife", "spoon",
-          // Surfaces
-          "dining table",
-        ]});
-      }
+
+      // Load AI vision models in the background so it doesn't freeze the screen
+      FilesetResolver.forVisionTasks("/mediapipe/wasm").then(async (vision) => {
+        if(!objectRef.current){
+          objectRef.current = await ObjectDetector.createFromOptions(vision,{baseOptions:{modelAssetPath:"/mediapipe/efficientdet_lite0_uint8.tflite"},runningMode:"VIDEO",scoreThreshold:.3,maxResults:10, categoryAllowlist: [
+            "pizza", "hot dog", "cake", "sandwich", "donut", "banana", "apple", "orange", "broccoli", "carrot",
+            "bowl", "cup", "wine glass", "bottle", "fork", "knife", "spoon",
+            "dining table",
+          ]});
+        }
+      }).catch(err => console.error("Vision models failed to load", err));
+
     } catch (e: any) { 
       const denied = e instanceof DOMException && (e.name === "NotAllowedError" || e.name === "SecurityError"); 
       setStatus(denied ? "denied" : "error"); 
@@ -314,6 +313,45 @@ function DirectorCameraInner() {
     // Restart camera immediately → straight to viewfinder
     startCamera().catch(e => console.error(e));
   }, [startCamera]);
+
+  const askAiDirector = async () => {
+    const video = videoRef.current;
+    if (!video || status !== "live" || isAskingAi) return;
+
+    setIsAskingAi(true);
+    setAiAdvice("AI is analyzing scene...");
+
+    const fullCanvas = document.createElement("canvas");
+    fullCanvas.width = Math.min(video.videoWidth, 800);
+    fullCanvas.height = Math.min(video.videoHeight, Math.floor(video.videoHeight * (800 / video.videoWidth)));
+    const fullCtx = fullCanvas.getContext("2d");
+    if (!fullCtx) { setIsAskingAi(false); return; }
+    if (facing === "user") { fullCtx.translate(fullCanvas.width, 0); fullCtx.scale(-1, 1); }
+    fullCtx.drawImage(video, 0, 0, fullCanvas.width, fullCanvas.height);
+    const photoData = fullCanvas.toDataURL("image/jpeg", 0.7);
+
+    try {
+      const res = await fetch("/api/director", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          image: photoData, 
+          prompt: "You are an expert food photography director. In one short, punchy sentence (under 12 words), give actionable advice to improve the aesthetic, lighting, or composition of this shot. Do not mention taking the picture, just give the aesthetic advice." 
+        })
+      });
+      const data = await res.json();
+      if (data.advice) {
+        setAiAdvice(`AI: ${data.advice}`);
+        setTimeout(() => setAiAdvice(null), 6000);
+      } else {
+        setAiAdvice(null);
+      }
+    } catch (e) {
+      setAiAdvice("Failed to reach AI");
+      setTimeout(() => setAiAdvice(null), 3000);
+    }
+    setIsAskingAi(false);
+  };
 
   const handleTouchStart = (e: React.TouchEvent) => {
     if (e.touches.length === 2) {
@@ -370,9 +408,7 @@ function DirectorCameraInner() {
       }
     : guidance;
 
-  // ── Determine if we should show the splash or not ──
-  const showSplash = !hasOpened && (status === "idle" || status === "loading" || status === "denied" || status === "error");
-  const showErrorOnly = hasOpened && (status === "denied" || status === "error");
+  const hasCameraError = status === "denied" || status === "error";
 
   return <main className="camera-shell" onTouchStart={handleTouchStart} onClick={handleTapFocus}><video ref={videoRef} className={`camera-feed ${facing === "user" ? "mirrored" : ""}`} playsInline muted aria-label="Live camera preview" /><div className="camera-scrim" aria-hidden />
     {status === "live" && <>
@@ -401,6 +437,14 @@ function DirectorCameraInner() {
       {zoomWarning && (
         <div className="toast-warning">
           Move physically closer instead of zooming
+        </div>
+      )}
+
+      {/* ── AI Advice Toast ── */}
+      {aiAdvice && (
+        <div className="toast-warning" style={{ top: '120px', background: 'rgba(92, 45, 145, 0.85)', color: 'white', borderColor: 'rgba(216, 180, 254, 0.5)', zIndex: 100 }}>
+          <Sparkles size={16} style={{ display: 'inline', marginRight: '6px', verticalAlign: 'middle' }} />
+          <span>{aiAdvice}</span>
         </div>
       )}
 
@@ -522,33 +566,43 @@ function DirectorCameraInner() {
             <Crop size={18} color={cropActive ? '#FF6B6B' : 'white'} />
           </button>
           <button type="button" className={`shutter ${cropSuggestion?.isSignificant && cropActive ? 'has-crop' : ''}`} onClick={capture} aria-label="Take photo"><span /></button>
-          <button type="button" className="round-control" onClick={() => setFacing(v => v === "user" ? "environment" : "user")} aria-label="Switch camera"><RefreshCw size={20} /></button>
+          <div style={{ display: 'flex', gap: '8px', justifySelf: 'end' }}>
+            <button type="button" className="round-control" onClick={askAiDirector} aria-label="Ask AI" disabled={isAskingAi} style={{
+              background: isAskingAi ? 'rgba(0,0,0,0.4)' : 'rgba(147, 51, 234, 0.25)',
+              border: isAskingAi ? 'none' : '1px solid rgba(168, 85, 247, 0.5)'
+            }}>
+              <Sparkles size={18} color={isAskingAi ? 'gray' : '#d8b4fe'} />
+            </button>
+            <button type="button" className="round-control" onClick={() => setFacing(v => v === "user" ? "environment" : "user")} aria-label="Switch camera"><RefreshCw size={20} /></button>
+          </div>
         </div>
       </footer>
     </>}
 
-    {/* ── Splash screen (only shown on first open) ── */}
-    {showSplash && (
+    {/* ── Unified Error Screen ── */}
+    {status === "idle" && !hasOpened && (
       <section className="camera-entry" style={{ zIndex: 99999 }}>
         <div className="entry-mark"><CameraIcon size={32} /></div>
         <p className="app-subtitle">CraveCam</p>
-        <h1>{status === "denied" ? "Camera access is off" : status === "error" ? "Camera unavailable" : "Capture the crave."}</h1>
-        <span>{error || "Smart, real-time guidance to make your food photos look incredibly appetizing."}</span>
-        <button type="button" onClick={() => { startCamera().catch(e => alert(e)); }} disabled={status === "loading"} className="start-btn">
-          {status === "loading" ? "Starting camera…" : status === "denied" ? "Try camera again" : "Open Camera"}
+        <h1>Ready when you are</h1>
+        <span>Tap below to open your camera and allow access when your browser asks.</span>
+        <button type="button" onClick={() => startCamera().catch(() => {})} className="start-btn" style={{ marginTop: '1rem' }}>
+          Start Camera
         </button>
-        {status === "denied" && <small>Allow camera access in your browser settings, then try again.</small>}
       </section>
     )}
 
-    {/* ── Error overlay on subsequent attempts (not the splash) ── */}
-    {showErrorOnly && (
-      <div className="toast-warning" style={{ top: '50%', transform: 'translate(-50%, -50%)' }}>
-        {error || "Camera unavailable"}<br />
-        <button type="button" onClick={() => startCamera().catch(() => {})} className="start-btn" style={{ marginTop: '1rem', padding: '.75rem 2rem', fontSize: '.9rem' }}>
-          Retry
+    {hasCameraError && (
+      <section className="camera-entry" style={{ zIndex: 99999 }}>
+        <div className="entry-mark"><CameraIcon size={32} /></div>
+        <p className="app-subtitle">CraveCam</p>
+        <h1>{status === "denied" ? "Camera access is off" : "Camera unavailable"}</h1>
+        <span>{error || "We couldn't access your camera. Please check permissions."}</span>
+        <button type="button" onClick={() => startCamera().catch(() => {})} className="start-btn" style={{ marginTop: '1rem' }}>
+          Retry Camera
         </button>
-      </div>
+        {status === "denied" && <small>Allow camera access in your browser settings, then try again.</small>}
+      </section>
     )}
 
     {status === "live" && <button className="close-camera" type="button" onClick={() => { stopCamera(); setStatus("idle"); setHasOpened(false); }} aria-label="Close camera"><X size={20} /></button>}

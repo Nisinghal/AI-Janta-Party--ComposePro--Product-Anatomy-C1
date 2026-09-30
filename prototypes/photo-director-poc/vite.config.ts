@@ -59,7 +59,7 @@ export default defineConfig(async () => {
       ...(isCodexSeatbeltSandbox ? { watch: { useFsEvents: false, usePolling: true } } : {}),
     },
     plugins: [
-      basicSsl(),
+      // basicSsl(), // Removed so localhost works on regular HTTP
       vinext(),
       sites({ mockAuth: !managedLinux }),
       cloudflare({
