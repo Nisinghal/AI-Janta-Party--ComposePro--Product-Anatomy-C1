@@ -40,12 +40,26 @@ object Thresholds {
     const val NOT_LEVEL_DEG = 7f
 }
 
-private val articleWords = setOf("cup", "dish", "drink", "cake", "plate", "bowl", "sandwich", "burger", "pie", "cookie", "snack", "salad", "pizza")
+/** Words that read naturally without "a": "Looks like coffee", not "Looks like a coffee". */
+private val massWords = setOf(
+    "food", "rice", "coffee", "tea", "soup", "bread", "meat", "pasta", "sushi", "juice", "wine", "beer", "chocolate",
+    "dessert", "cuisine", "breakfast", "lunch", "dinner", "fruit", "tableware", "ice cream", "water", "milk",
+)
 
-fun looksLike(label: String?, category: String?): String {
-    val word = (label ?: category?.takeIf { it.equals("Food", true) })?.lowercase() ?: return "Looks like food"
-    return if (word in articleWords) "Looks like a $word" else "Looks like $word"
+/**
+ * "Looks like …" only when the camera actually has a word for it. Returns null rather than guessing,
+ * so it never calls a laptop "food" (AX_SPEC: wrong is worse than quiet).
+ */
+fun looksLike(label: String?, category: String?): String? {
+    val word = (label ?: category?.takeIf { it.equals("Food", true) })?.lowercase() ?: return null
+    if (word in massWords || word.endsWith("s")) return "Looks like $word"
+    val article = if (word.first() in "aeiou") "an" else "a"
+    return "Looks like $article $word"
 }
+
+/** The name used in Review and the "not right" list, e.g. "Laptop", "Coffee". */
+fun thingName(label: String?, category: String?): String =
+    (label ?: category?.takeIf { it.equals("Food", true) })?.replaceFirstChar { it.uppercase() } ?: "Photo"
 
 /** Priority: too dark → light → framing → guide → all good. One tip at a time (BRIEF.md). */
 fun decide(r: FrameResult?, guide: Guide, tilt: Tilt, zoom: Float, dismissed: (Thing) -> Boolean): TipDecision {
@@ -54,10 +68,11 @@ fun decide(r: FrameResult?, guide: Guide, tilt: Tilt, zoom: Float, dismissed: (T
     val main = r.things.firstOrNull() ?: return TipDecision.NONE   // not sure: no edge, no tip
     if (dismissed(main)) return TipDecision.NONE
     val looks = looksLike(r.label, main.category)
+    fun line2(why: String) = if (looks != null) "$why · $looks" else why
     fun light(key: String, l1: String, why: String) =
-        TipDecision(key, TipKind.Light, l1, "$why · $looks", l1.replaceFirstChar { it.lowercase() }, EdgeState.Off, main)
+        TipDecision(key, TipKind.Light, l1, line2(why), l1.replaceFirstChar { it.lowercase() }, EdgeState.Off, main)
     fun framing(key: String, l1: String, why: String) =
-        TipDecision(key, TipKind.Framing, l1, "$why · $looks", l1.replaceFirstChar { it.lowercase() }, EdgeState.Off, main)
+        TipDecision(key, TipKind.Framing, l1, line2(why), l1.replaceFirstChar { it.lowercase() }, EdgeState.Off, main)
 
     if (r.warmth > Thresholds.WARM_CAST) return light("warm", "Move it toward window light.", "The light here is turning it yellow")
     if (r.clipFrac > Thresholds.GLARE) return light("glare", "Tilt a little to dodge the glare.", "Bright spots are washing it out")

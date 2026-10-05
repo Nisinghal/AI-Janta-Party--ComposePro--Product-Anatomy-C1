@@ -71,7 +71,7 @@ import com.composepro.app.camera.FrameResult
 import com.composepro.app.camera.TipDecision
 import com.composepro.app.camera.TipKind
 import com.composepro.app.camera.decide
-import com.composepro.app.camera.looksLike
+import com.composepro.app.camera.thingName
 import com.composepro.app.camera.rememberTilt
 import com.composepro.app.data.PhotoStore
 import com.composepro.app.guide.Guide
@@ -185,7 +185,7 @@ fun CameraScreen(state: AppState) {
         if (taking || unavailable) return
         taking = true
         val reminder = if (shown.isTip) shown.remind else null
-        val name = frame?.let { f -> looksLike(f.label, f.things.firstOrNull()?.category).removePrefix("Looks like ").removePrefix("a ").replaceFirstChar { it.uppercase() } } ?: "Photo"
+        val name = frame?.let { f -> thingName(f.label, f.things.firstOrNull()?.category) } ?: "Photo"
         scope.launch { flash.snapTo(0.85f); flash.animateTo(0f, tween(180)) }
         imageCapture.takePicture(
             PhotoStore.outputOptions(context),
@@ -211,7 +211,7 @@ fun CameraScreen(state: AppState) {
     fun notRight() {
         val main = shown.main
         if (main?.id != null) dismissedIds[main.id] = true else dismissedUntil = SystemClock.elapsedRealtime() + 15_000
-        state.addNotRight(frame?.let { looksLike(it.label, main?.category).removePrefix("Looks like ").replaceFirstChar { c -> c.uppercase() } } ?: "Something")
+        state.addNotRight(frame?.let { thingName(it.label, main?.category).takeIf { n -> n != "Photo" } } ?: "Something")
         shown = TipDecision.NONE
         toast = "Got it. No more tips for this one."
     }

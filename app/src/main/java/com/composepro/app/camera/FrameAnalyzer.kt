@@ -143,6 +143,9 @@ class FrameAnalyzer(private val onResult: (FrameResult) -> Unit) : ImageAnalysis
         "dinner", "snack", "cookie", "ice cream", "pasta", "sandwich", "burger", "egg", "chocolate", "pie", "tableware", "plate", "bowl",
     )
 
-    private fun pickLabel(labels: List<ImageLabel>): String? =
-        labels.sortedByDescending { it.confidence }.firstOrNull { it.text.lowercase() in foodWords }?.text
+    /** Prefer a food word if one is confident enough; otherwise the most confident label of any kind (scope is any object). */
+    private fun pickLabel(labels: List<ImageLabel>): String? {
+        val sorted = labels.sortedByDescending { it.confidence }
+        return (sorted.firstOrNull { it.text.lowercase() in foodWords } ?: sorted.firstOrNull())?.text
+    }
 }
