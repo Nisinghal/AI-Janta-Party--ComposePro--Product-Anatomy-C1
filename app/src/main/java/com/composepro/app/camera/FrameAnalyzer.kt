@@ -1,32 +1,31 @@
 package com.composepro.app.camera
 
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Matrix
 import android.graphics.RectF
 import android.os.SystemClock
-import androidx.annotation.OptIn
-import androidx.camera.core.ExperimentalGetImage
+import android.util.Log
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
-import com.google.android.gms.tasks.Task
-import com.google.android.gms.tasks.Tasks
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.label.ImageLabel
-import com.google.mlkit.vision.label.ImageLabeling
-import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
-import com.google.mlkit.vision.objects.DetectedObject
-import com.google.mlkit.vision.objects.ObjectDetection
-import com.google.mlkit.vision.objects.defaults.ObjectDetectorOptions
+import androidx.core.content.ContextCompat
+import com.google.mediapipe.framework.image.BitmapImageBuilder
+import com.google.mediapipe.tasks.core.BaseOptions
+import com.google.mediapipe.tasks.vision.core.RunningMode
+import com.google.mediapipe.tasks.vision.objectdetector.ObjectDetector
+import kotlin.math.max
+import kotlin.math.min
 
-/** One recognised thing. Box is a fraction of the upright 3:4 frame, so it maps straight onto the preview. */
+/** One recognised thing. Box is a fraction of the upright 3:4 frame, so it maps straight onto the preview. Name is what the model calls it ("cup", "bowl", "laptop"). */
 data class Thing(val id: Int?, val box: RectF, val category: String?) {
     val cx get() = box.centerX()
     val cy get() = box.centerY()
     val area get() = box.width() * box.height()
 }
 
-/** Everything the tips need from one camera frame. Light values are 0–255 luma and chroma averages. */
+/** Everything the tips need from one camera frame. Light values are 0-255 luma and chroma averages. */
 data class FrameResult(
     val things: List<Thing>,
-    val label: String?,
     val meanY: Float,
     val centerY: Float,
     val clipFrac: Float,
@@ -34,54 +33,92 @@ data class FrameResult(
 )
 
 /**
- * Runs on-device: ML Kit object detection every frame it can (about 6 a second), image labelling
- * about once a second, and simple light measurements straight from the camera's pixels.
+ * Runs on-device: Google's EfficientDet-Lite0 model (bundled in the app, 80 everyday object types)
+ * about 8 times a second, plus simple light measurements straight from the camera's pixels.
  */
-class FrameAnalyzer(private val onResult: (FrameResult) -> Unit) : ImageAnalysis.Analyzer {
-    private val detector = ObjectDetection.getClient(
-        ObjectDetectorOptions.Builder()
-            .setDetectorMode(ObjectDetectorOptions.STREAM_MODE)
-            .enableMultipleObjects()
-            .enableClassification()
-            .build(),
-    )
-    private val labeler = ImageLabeling.getClient(ImageLabelerOptions.Builder().setConfidenceThreshold(0.6f).build())
+class FrameAnalyzer(private val context: Context, private val onResult: (FrameResult) -> Unit) : ImageAnalysis.Analyzer {
+    private val mainThread = ContextCompat.getMainExecutor(context)
+    private var detector: ObjectDetector? = null
     private var lastRun = 0L
-    private var frameCount = 0
-    private var label: String? = null
 
-    @OptIn(ExperimentalGetImage::class)
     override fun analyze(proxy: ImageProxy) {
         val now = SystemClock.elapsedRealtime()
-        val media = proxy.image
-        if (media == null || now - lastRun < 150) { proxy.close(); return }
+        if (now - lastRun < 120) { proxy.close(); return }
         lastRun = now
-
-        val rotation = proxy.imageInfo.rotationDegrees
-        val w = (if (rotation % 180 == 0) proxy.width else proxy.height).toFloat()
-        val h = (if (rotation % 180 == 0) proxy.height else proxy.width).toFloat()
-        val light = measureLight(proxy)
-        val input = InputImage.fromMediaImage(media, rotation)
-
-        val objects = detector.process(input)
-        val labels: Task<List<ImageLabel>>? = if (frameCount++ % 6 == 0) labeler.process(input) else null
-        Tasks.whenAllComplete(listOfNotNull(objects, labels)).addOnCompleteListener {
-            try {
-                if (labels != null && labels.isSuccessful) label = pickLabel(labels.result)
-                val things = if (objects.isSuccessful) objects.result.mapNotNull { it.toThing(w, h) }.sortedByDescending { it.area } else emptyList()
-                onResult(FrameResult(things, label, light.meanY, light.centerY, light.clipFrac, light.warmth))
-            } finally {
-                proxy.close()
-            }
+        try {
+            val light = measureLight(proxy)
+            val image = upright(proxy.toBitmap(), proxy.imageInfo.rotationDegrees)
+            val things = steady(detect(image), now)
+            Log.d(TAG, "things=${things.size} ${things.map { it.category }}")
+            val r = FrameResult(things, light.meanY, light.centerY, light.clipFrac, light.warmth)
+            mainThread.execute { onResult(r) }
+        } catch (e: Exception) {
+            Log.e(TAG, "analysis failed", e)
+        } finally {
+            proxy.close()
         }
     }
 
-    fun close() { detector.close(); labeler.close() }
+    fun close() { detector?.close(); detector = null }
 
-    private fun DetectedObject.toThing(w: Float, h: Float): Thing? {
-        val b = RectF(boundingBox.left / w, boundingBox.top / h, boundingBox.right / w, boundingBox.bottom / h)
-        if (b.width() * b.height() < 0.02f) return null   // ignore specks
-        return Thing(trackingId, b, labels.maxByOrNull { it.confidence }?.text)
+    private fun detectorOrNull(): ObjectDetector? = detector ?: try {
+        ObjectDetector.createFromOptions(
+            context,
+            ObjectDetector.ObjectDetectorOptions.builder()
+                .setBaseOptions(BaseOptions.builder().setModelAssetPath("efficientdet_lite0.tflite").build())
+                .setRunningMode(RunningMode.IMAGE)
+                .setMaxResults(8)
+                .setScoreThreshold(0.3f)
+                .build(),
+        ).also { detector = it }
+    } catch (e: Exception) {
+        Log.e(TAG, "couldn't load the detection model", e)
+        null
+    }
+
+    /** Small and upright, so boxes come back in the same orientation as the preview. */
+    private fun upright(src: Bitmap, rotation: Int): Bitmap {
+        val scale = min(1f, 480f / max(src.width, src.height))
+        val m = Matrix().apply { postScale(scale, scale); postRotate(rotation.toFloat()) }
+        return Bitmap.createBitmap(src, 0, 0, src.width, src.height, m, true)
+    }
+
+    private class Found(val box: RectF, val name: String, val score: Float)
+
+    private fun detect(image: Bitmap): List<Found> {
+        val d = detectorOrNull() ?: return emptyList()
+        val w = image.width.toFloat()
+        val h = image.height.toFloat()
+        val all = d.detect(BitmapImageBuilder(image).build()).detections().mapNotNull { det ->
+            val c = det.categories().firstOrNull() ?: return@mapNotNull null
+            if (c.categoryName() in ignored) return@mapNotNull null
+            val b = det.boundingBox()
+            val box = RectF((b.left / w).coerceIn(0f, 1f), (b.top / h).coerceIn(0f, 1f), (b.right / w).coerceIn(0f, 1f), (b.bottom / h).coerceIn(0f, 1f))
+            if (box.width() * box.height() < 0.01f) null else Found(box, friendly(c.categoryName()), c.score())
+        }.sortedByDescending { it.score }
+        // One plate can come back as both "bowl" and "pizza": keep only the surer one.
+        val kept = mutableListOf<Found>()
+        for (f in all) if (kept.none { iou(it.box, f.box) > 0.5f }) kept += f
+        return kept
+    }
+
+    /** Gives each thing a lasting id by overlap with last frame's things, and keeps one the model missed for up to 0.6s, so marks and arrows don't flicker. */
+    private val recent = mutableMapOf<Int, Pair<Thing, Long>>()
+    private var nextId = 1
+
+    private fun steady(found: List<Found>, now: Long): List<Thing> {
+        val used = mutableSetOf<Int>()
+        val fresh = found.map { f ->
+            val match = recent.entries.filter { it.key !in used }.maxByOrNull { iou(it.value.first.box, f.box) }
+                ?.takeIf { iou(it.value.first.box, f.box) > 0.3f }
+            val id = match?.key ?: nextId++
+            used += id
+            Thing(id, f.box, f.name)
+        }
+        fresh.forEach { recent[it.id!!] = it to now }
+        recent.entries.removeAll { now - it.value.second > 600 }
+        val held = recent.filterKeys { it !in used }.values.map { it.first }
+        return (fresh + held).sortedByDescending { it.area }.take(5)
     }
 
     private class Light(val meanY: Float, val centerY: Float, val clipFrac: Float, val warmth: Float)
@@ -137,15 +174,25 @@ class FrameAnalyzer(private val onResult: (FrameResult) -> Unit) : ImageAnalysis
         )
     }
 
-    private val foodWords = setOf(
-        "food", "dish", "cuisine", "dessert", "cake", "bread", "pizza", "salad", "soup", "noodle", "rice", "coffee", "tea",
-        "drink", "cup", "juice", "cocktail", "wine", "beer", "fruit", "vegetable", "sushi", "meat", "breakfast", "lunch",
-        "dinner", "snack", "cookie", "ice cream", "pasta", "sandwich", "burger", "egg", "chocolate", "pie", "tableware", "plate", "bowl",
-    )
+    private companion object {
+        const val TAG = "ComposePro"
 
-    /** Prefer a food word if one is confident enough; otherwise the most confident label of any kind (scope is any object). */
-    private fun pickLabel(labels: List<ImageLabel>): String? {
-        val sorted = labels.sortedByDescending { it.confidence }
-        return (sorted.firstOrNull { it.text.lowercase() in foodWords } ?: sorted.firstOrNull())?.text
+        /** Tips are for things, not people (BRIEF.md); a table is the background, not a thing to arrange. */
+        val ignored = setOf("person", "dining table", "bed", "couch")
+
+        fun friendly(name: String) = when (name) {
+            "cell phone" -> "phone"
+            "potted plant" -> "plant"
+            "tv" -> "TV"
+            else -> name
+        }
+
+        fun iou(a: RectF, b: RectF): Float {
+            val iw = min(a.right, b.right) - max(a.left, b.left)
+            val ih = min(a.bottom, b.bottom) - max(a.top, b.top)
+            if (iw <= 0 || ih <= 0) return 0f
+            val inter = iw * ih
+            return inter / (a.width() * a.height() + b.width() * b.height() - inter)
+        }
     }
 }

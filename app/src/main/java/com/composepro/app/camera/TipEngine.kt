@@ -4,8 +4,10 @@ import com.composepro.app.guide.Alignment
 import com.composepro.app.guide.Guide
 import com.composepro.app.guide.P
 import com.composepro.app.guide.alignment
+import com.composepro.app.guide.targets
 import com.composepro.app.ui.EdgeState
 import kotlin.math.abs
+import kotlin.math.hypot
 
 enum class TipKind { None, Note, Light, Framing, Guide, Good }
 
@@ -40,26 +42,21 @@ object Thresholds {
     const val NOT_LEVEL_DEG = 7f
 }
 
-/** Words that read naturally without "a": "Looks like coffee", not "Looks like a coffee". */
-private val massWords = setOf(
-    "food", "rice", "coffee", "tea", "soup", "bread", "meat", "pasta", "sushi", "juice", "wine", "beer", "chocolate",
-    "dessert", "cuisine", "breakfast", "lunch", "dinner", "fruit", "tableware", "ice cream", "water", "milk",
-)
+/** Words that read naturally without "a": "Looks like pizza", not "Looks like a pizza". */
+private val massWords = setOf("pizza", "broccoli", "cake", "food", "rice", "coffee", "bread")
 
-/**
- * "Looks like …" only when the camera actually has a word for it. Returns null rather than guessing,
- * so it never calls a laptop "food" (AX_SPEC: wrong is worse than quiet).
- */
-fun looksLike(label: String?, category: String?): String? {
-    val word = (label ?: category?.takeIf { it.equals("Food", true) })?.lowercase() ?: return null
-    if (word in massWords || word.endsWith("s")) return "Looks like $word"
-    val article = if (word.first() in "aeiou") "an" else "a"
-    return "Looks like $article $word"
+/** "a cup", "an orange", "pizza". */
+private fun withArticle(word: String): String = when {
+    word in massWords || word.endsWith("s") -> word
+    word.first().lowercaseChar() in "aeiou" -> "an $word"
+    else -> "a $word"
 }
 
-/** The name used in Review and the "not right" list, e.g. "Laptop", "Coffee". */
-fun thingName(label: String?, category: String?): String =
-    (label ?: category?.takeIf { it.equals("Food", true) })?.replaceFirstChar { it.uppercase() } ?: "Photo"
+/** "Looks like a cup", or null if the camera has no word for it (AX_SPEC: wrong is worse than quiet). */
+fun looksLike(name: String?): String? = name?.let { "Looks like ${withArticle(it)}" }
+
+/** The name used in Review and the "not right" list, e.g. "Cup", "Laptop". */
+fun thingName(name: String?): String = name?.replaceFirstChar { it.uppercase() } ?: "Photo"
 
 /** Priority: too dark → light → framing → guide → all good. One tip at a time (BRIEF.md). */
 fun decide(r: FrameResult?, guide: Guide, tilt: Tilt, zoom: Float, dismissed: (Thing) -> Boolean): TipDecision {
@@ -67,7 +64,7 @@ fun decide(r: FrameResult?, guide: Guide, tilt: Tilt, zoom: Float, dismissed: (T
     if (r.meanY < Thresholds.TOO_DARK) return TipDecision("dark", TipKind.Note, "Too dark for me to see. Try more light, or just shoot.")
     val main = r.things.firstOrNull() ?: return TipDecision.NONE   // not sure: no edge, no tip
     if (dismissed(main)) return TipDecision.NONE
-    val looks = looksLike(r.label, main.category)
+    val looks = looksLike(main.category)
     fun line2(why: String) = if (looks != null) "$why · $looks" else why
     fun light(key: String, l1: String, why: String) =
         TipDecision(key, TipKind.Light, l1, line2(why), l1.replaceFirstChar { it.lowercase() }, EdgeState.Off, main)
@@ -85,10 +82,35 @@ fun decide(r: FrameResult?, guide: Guide, tilt: Tilt, zoom: Float, dismissed: (T
     if (tilt.flat && tilt.offFlatDeg > Thresholds.NOT_FLAT_DEG) return framing("flat", "Hold the phone flat above the table.", "From above works best straight down")
     if (!tilt.flat && tilt != Tilt.Unknown && abs(tilt.rollDeg) > Thresholds.NOT_LEVEL_DEG && abs(tilt.rollDeg) < 45f) return framing("level", "Hold the phone level.", "The table edge looks tilted")
 
-    val al = alignment(guide, r.things.map { P(it.cx, it.cy) })
+    val points = r.things.map { P(it.cx, it.cy) }
+    val al = alignment(guide, points)
     if (!al.done) {
-        return TipDecision("guide-${guide.name}", TipKind.Guide, guide.tip, "Guide: ${guide.label} · Swipe to change",
+        val t = targets(guide, points.size)
+        val misses = al.matches.filter { !it.hit }
+        val worst = misses.maxBy { m -> hypot(t[m.target].x - points[m.thing].x, t[m.target].y - points[m.thing].y) }
+        val way = direction(t[worst.target].x - points[worst.thing].x, t[worst.target].y - points[worst.thing].y)
+        val who = r.things[worst.thing].category?.let { "the $it" } ?: "it"
+        val line1 = when {
+            al.matches.size == 1 -> "Move $who $way onto the circle."
+            misses.size == 1 -> "One more: move $who $way onto its circle."
+            else -> "Follow the arrows: put each thing on a circle."
+        }
+        val line2 = if (al.matches.size == 1) "${guide.label} guide"
+        else "${guide.label} · ${al.placed} of ${al.matches.size} in place"
+        return TipDecision("guide-${guide.name}", TipKind.Guide, line1, line2,
             guide.tip.replaceFirstChar { it.lowercase() }, EdgeState.None, main, al)
     }
     return TipDecision("good", TipKind.Good, edge = EdgeState.Right, main = main, alignment = al)
+}
+
+/** "up and to the left", "down", "a little to the right". dx/dy are in frame fractions, screen directions. */
+private fun direction(dx: Float, dy: Float): String {
+    val v = when { dy < -0.03f -> "up"; dy > 0.03f -> "down"; else -> null }
+    val h = when { dx < -0.03f -> "to the left"; dx > 0.03f -> "to the right"; else -> null }
+    return when {
+        v != null && h != null -> "$v and $h"
+        v != null -> v
+        h != null -> h
+        else -> "a little"
+    }
 }

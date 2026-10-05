@@ -54,24 +54,47 @@ fun targets(guide: Guide, count: Int): List<P> = when (guide) {
     Guide.Spiral -> listOf(P(Spiral.EX, Spiral.EY))
 }
 
-data class Alignment(val hits: List<Boolean>, val done: Boolean)
+/** One thing paired with the guide point it should move to. Indexes into the things and targets lists. */
+data class Match(val thing: Int, val target: Int, val hit: Boolean)
 
-/** Are the things sitting on the guide's points? things[0] is the main thing (largest). */
+data class Alignment(val hits: List<Boolean>, val done: Boolean, val matches: List<Match> = emptyList()) {
+    val placed get() = matches.count { it.hit }
+}
+
+private const val TOLERANCE = 0.08f
+private fun dist(a: P, b: P) = hypot(a.x - b.x, a.y - b.y)
+
+/**
+ * Which thing goes to which guide point, and is it there yet? things[0] is the main thing (largest).
+ * Triangle and diagonal pair each thing with a point so the total moving is as small as possible,
+ * so every plate gets its own spot (the user's reference images).
+ */
 fun alignment(guide: Guide, things: List<P>): Alignment {
     val t = targets(guide, things.size)
     if (things.isEmpty()) return Alignment(t.map { false }, false)
-    val tol = 0.08f
-    fun near(a: P, b: P) = hypot(a.x - b.x, a.y - b.y) < tol
-    return when (guide) {
-        Guide.Centre, Guide.Spiral -> { val h = near(things[0], t[0]); Alignment(listOf(h), h) }
-        Guide.Thirds -> { val hits = t.map { near(things[0], it) }; Alignment(hits, hits.any { it }) }
-        else -> {
-            val used = mutableSetOf<Int>()
-            val hits = t.map { target ->
-                val j = things.indices.firstOrNull { it !in used && near(things[it], target) }
-                if (j != null) { used += j; true } else false
-            }
-            Alignment(hits, hits.count { it } >= min(t.size, things.size))
-        }
+    val pairs: List<Pair<Int, Int>> = when (guide) {
+        Guide.Centre, Guide.Spiral -> listOf(0 to 0)
+        Guide.Thirds -> listOf(0 to t.indices.minBy { dist(things[0], t[it]) })
+        else -> bestPairs(things, t)
     }
+    val matches = pairs.map { (i, j) -> Match(i, j, dist(things[i], t[j]) < TOLERANCE) }
+    val hits = t.indices.map { j -> matches.any { it.target == j && it.hit } }
+    return Alignment(hits, matches.all { it.hit }, matches)
+}
+
+/** Tries every pairing of the largest things with the points (at most 3 × 3, so this is instant). */
+private fun bestPairs(things: List<P>, t: List<P>): List<Pair<Int, Int>> {
+    val n = min(things.size, t.size)
+    var best = emptyList<Int>()
+    var bestCost = Float.MAX_VALUE
+    fun go(chosen: List<Int>) {
+        if (chosen.size == n) {
+            val cost = chosen.indices.sumOf { dist(things[it], t[chosen[it]]).toDouble() }.toFloat()
+            if (cost < bestCost) { bestCost = cost; best = chosen }
+            return
+        }
+        for (j in t.indices) if (j !in chosen) go(chosen + j)
+    }
+    go(emptyList())
+    return best.mapIndexed { i, j -> i to j }
 }

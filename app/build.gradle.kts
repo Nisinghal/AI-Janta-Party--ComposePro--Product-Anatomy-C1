@@ -17,6 +17,9 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Real phones only: MediaPipe's emulator (x86) copies would double the app's size.
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
 
     buildTypes {
@@ -33,6 +36,10 @@ android {
     }
     buildFeatures {
         compose = true
+    }
+    // The detection model is read straight from the APK, so it must stay uncompressed.
+    androidResources {
+        noCompress += "tflite"
     }
 }
 
@@ -51,8 +58,7 @@ dependencies {
     implementation(libs.androidx.camera.camera2)
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
-    implementation(libs.mlkit.objectdetection)
-    implementation(libs.mlkit.image.labeling)
+    implementation(libs.mediapipe.tasks.vision)
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)

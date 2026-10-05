@@ -113,7 +113,7 @@ fun CameraScreen(state: AppState) {
     }
     var frame by remember { mutableStateOf<FrameResult?>(null) }
     val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
-    val analyzer = remember { FrameAnalyzer { r -> frame = r } }
+    val analyzer = remember { FrameAnalyzer(context) { r -> frame = r } }
     val imageAnalysis = remember {
         ImageAnalysis.Builder()
             .setResolutionSelector(fourByThree)
@@ -130,8 +130,6 @@ fun CameraScreen(state: AppState) {
     var taking by remember { mutableStateOf(false) }
     var zoom by remember { mutableFloatStateOf(1f) }
     var zoomShownAt by remember { mutableLongStateOf(0L) }
-    var guideOverride by remember { mutableStateOf<Guide?>(null) }
-    var guideChipAt by remember { mutableLongStateOf(0L) }
     val dismissedIds = remember { mutableStateMapOf<Int, Boolean>() }
     var dismissedUntil by remember { mutableLongStateOf(0L) }
     val tilt by rememberTilt()
@@ -159,9 +157,8 @@ fun CameraScreen(state: AppState) {
 
     // ---- what to show: raw decision, then settled so tips don't flicker ----
     val count = frame?.things?.size ?: 0
-    val autoGuide = Guide.autoFor(count)
-    val guide = guideOverride ?: autoGuide
-    LaunchedEffect(autoGuide) { if (guideOverride == null && count > 0) guideChipAt = SystemClock.elapsedRealtime() }
+    // The camera picks the guide from what it sees; there's no manual switch (user decision, 2026-10-05).
+    val guide = Guide.autoFor(count)
     val raw = if (!state.tipsOn) TipDecision.NONE else decide(frame, guide, tilt, zoom) { thing ->
         SystemClock.elapsedRealtime() < dismissedUntil || (thing.id != null && dismissedIds[thing.id] == true)
     }
@@ -178,14 +175,25 @@ fun CameraScreen(state: AppState) {
         val key = pendingKey ?: return@LaunchedEffect
         if (key == raw.key && now - pendingSince >= SETTLE_MS) { shown = raw; pendingKey = null }
     }
-    val guideAlignment = frame?.let { f -> if (f.things.isEmpty()) null else alignment(guide, f.things.map { P(it.cx, it.cy) }) }
+    val things = frame?.things.orEmpty()
+    val points = things.map { P(it.cx, it.cy) }
+    val guideAlignment = if (points.isEmpty()) null else alignment(guide, points)
     val guideVisible = state.tipsOn && count > 0 && shown.kind != TipKind.Note
+    // When nothing's recognised for a while, say so, so it's clear the camera is looking.
+    var lastSeenAt by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
+    LaunchedEffect(count) { if (count > 0) lastSeenAt = SystemClock.elapsedRealtime() }
+    val looking = state.tipsOn && frame != null && count == 0 && now - lastSeenAt > 1500
+    val note = when {
+        shown.kind == TipKind.Note -> shown.line1
+        looking -> "Point at what you want to shoot. I'll mark what I see."
+        else -> null
+    }
 
     fun takePhoto() {
         if (taking || unavailable) return
         taking = true
         val reminder = if (shown.isTip) shown.remind else null
-        val name = frame?.let { f -> thingName(f.label, f.things.firstOrNull()?.category) } ?: "Photo"
+        val name = frame?.let { f -> thingName(f.things.firstOrNull()?.category) } ?: "Photo"
         scope.launch { flash.snapTo(0.85f); flash.animateTo(0f, tween(180)) }
         imageCapture.takePicture(
             PhotoStore.outputOptions(context),
@@ -211,37 +219,26 @@ fun CameraScreen(state: AppState) {
     fun notRight() {
         val main = shown.main
         if (main?.id != null) dismissedIds[main.id] = true else dismissedUntil = SystemClock.elapsedRealtime() + 15_000
-        state.addNotRight(frame?.let { thingName(it.label, main?.category).takeIf { n -> n != "Photo" } } ?: "Something")
+        state.addNotRight(main?.category?.let { thingName(it) } ?: "Something")
         shown = TipDecision.NONE
         toast = "Got it. No more tips for this one."
     }
 
-    // Pinch to zoom; a one-finger sideways swipe changes the guide.
+    // Pinch to zoom.
     val gestures = Modifier.pointerInput(camera) {
         awaitEachGesture {
             awaitFirstDown(requireUnconsumed = false)
-            var dx = 0f
-            var multi = false
             while (true) {
                 val event = awaitPointerEvent()
                 if (event.changes.none { it.pressed }) break
                 if (event.changes.size > 1) {
-                    multi = true
                     val cam = camera ?: continue
                     val maxZoom = cam.cameraInfo.zoomState.value?.maxZoomRatio ?: 1f
                     zoom = (zoom * event.calculateZoom()).coerceIn(1f, maxZoom)
                     cam.cameraControl.setZoomRatio(zoom)
                     zoomShownAt = SystemClock.elapsedRealtime()
                     event.changes.forEach { it.consume() }
-                } else if (!multi) {
-                    dx += event.changes.first().positionChange().x
                 }
-            }
-            if (!multi && abs(dx) > 60.dp.toPx()) {
-                val all = Guide.entries
-                val i = all.indexOf(guide)
-                guideOverride = all[(i + (if (dx < 0) 1 else -1) + all.size) % all.size]
-                guideChipAt = SystemClock.elapsedRealtime()
             }
         }
     }
@@ -249,11 +246,13 @@ fun CameraScreen(state: AppState) {
     Column(Modifier.fillMaxSize().background(CP.CameraBar).statusBarsPadding()) {
         Box(Modifier.fillMaxWidth().aspectRatio(3f / 4f).clip(CPShape.Sheet).then(gestures)) {
             AndroidView({ previewView }, Modifier.fillMaxSize())
-            GuideLayer(guide, count, guideAlignment, guideVisible, Modifier.fillMaxSize())
+            GridLayer(state.tipsOn && shown.kind != TipKind.Note, Modifier.fillMaxSize())
+            ThingsLayer(things, guideVisible, Modifier.fillMaxSize())
+            GuideLayer(guide, count, guideAlignment, points, guideVisible, Modifier.fillMaxSize())
             EdgeLayer(shown.main, shown.edge, Modifier.fillMaxSize())
             TipCapsule(shown, ::notRight, Modifier.align(Alignment.TopCenter).padding(top = CPSpace.S2, start = CPSpace.S3, end = CPSpace.S3))
-            NoteChip(if (shown.kind == TipKind.Note) shown.line1 else null, Modifier.align(Alignment.TopCenter).padding(top = CPSpace.S2))
-            GuideChip(guide, guideVisible && now - guideChipAt < 1800, Modifier.align(Alignment.BottomCenter).padding(bottom = CPSpace.S2))
+            NoteChip(note, Modifier.align(Alignment.TopCenter).padding(top = CPSpace.S2))
+            GuideChip(guide, count, guideVisible, Modifier.align(Alignment.BottomCenter).padding(bottom = CPSpace.S2))
             ZoomChip(zoom, now - zoomShownAt < 900, Modifier.align(Alignment.Center))
             Box(Modifier.fillMaxSize().alpha(flash.value).background(CP.OnDark))
             Box(Modifier.fillMaxSize().alpha(cover.value).background(CP.CameraBar))

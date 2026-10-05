@@ -35,6 +35,7 @@ import com.composepro.app.camera.Thing
 import com.composepro.app.camera.TipDecision
 import com.composepro.app.guide.Alignment as GuideAlignment
 import com.composepro.app.guide.Guide
+import com.composepro.app.guide.P
 import com.composepro.app.guide.Spiral
 import com.composepro.app.guide.targets
 import com.composepro.app.ui.theme.CP
@@ -42,9 +43,45 @@ import com.composepro.app.ui.theme.CPShape
 import com.composepro.app.ui.theme.CPSpace
 import com.composepro.app.ui.theme.CPType
 
-/** Quiet white guide lines and target dots. Dots turn green as things land on them; all lines go green when done. */
+/** A thin rule-of-thirds grid, always on while tips are on, so the guide has something to sit in. */
 @Composable
-fun GuideLayer(guide: Guide, count: Int, alignment: GuideAlignment?, visible: Boolean, modifier: Modifier = Modifier) {
+fun GridLayer(visible: Boolean, modifier: Modifier = Modifier) {
+    val a by animateFloatAsState(if (visible) 1f else 0f, tween(250), label = "gridAlpha")
+    Canvas(modifier.alpha(a)) {
+        val c = CP.OnDark.copy(alpha = 0.35f)
+        val sw = 1f * density
+        for (i in 1..2) {
+            drawLine(c, Offset(size.width * i / 3, 0f), Offset(size.width * i / 3, size.height), sw)
+            drawLine(c, Offset(0f, size.height * i / 3), Offset(size.width, size.height * i / 3), sw)
+        }
+    }
+}
+
+/** Soft white corner marks on everything the camera recognises, so it's clear what it's looking at. */
+@Composable
+fun ThingsLayer(things: List<Thing>, visible: Boolean, modifier: Modifier = Modifier) {
+    val a by animateFloatAsState(if (visible) 1f else 0f, tween(250), label = "thingsAlpha")
+    Canvas(modifier.alpha(a)) {
+        val c = CP.OnDark.copy(alpha = 0.85f)
+        val sw = 2.5f * density
+        for (th in things) {
+            val l = th.box.left * size.width; val t = th.box.top * size.height
+            val r = th.box.right * size.width; val b = th.box.bottom * size.height
+            val len = minOf(18f * density, (r - l) / 3, (b - t) / 3)
+            drawLine(c, Offset(l, t), Offset(l + len, t), sw); drawLine(c, Offset(l, t), Offset(l, t + len), sw)
+            drawLine(c, Offset(r, t), Offset(r - len, t), sw); drawLine(c, Offset(r, t), Offset(r, t + len), sw)
+            drawLine(c, Offset(l, b), Offset(l + len, b), sw); drawLine(c, Offset(l, b), Offset(l, b - len), sw)
+            drawLine(c, Offset(r, b), Offset(r - len, b), sw); drawLine(c, Offset(r, b), Offset(r, b - len), sw)
+        }
+    }
+}
+
+/**
+ * The guide lines, plus a circle for each spot a thing should go. Each thing that isn't there yet gets
+ * a dot and a dashed arrow to its circle; the circle fills green with ✓ when it lands. All lines go green when done.
+ */
+@Composable
+fun GuideLayer(guide: Guide, count: Int, alignment: GuideAlignment?, things: List<P>, visible: Boolean, modifier: Modifier = Modifier) {
     val a by animateFloatAsState(if (visible) 1f else 0f, tween(250), label = "guideAlpha")
     Canvas(modifier.alpha(a)) {
         val w = size.width; val h = size.height
@@ -82,10 +119,48 @@ fun GuideLayer(guide: Guide, count: Int, alignment: GuideAlignment?, visible: Bo
                 drawPath(p, line, style = Stroke(stroke))
             }
         }
-        t.forEachIndexed { i, c ->
-            val hit = alignment?.hits?.getOrNull(i) == true
-            if (hit) drawCircle(CP.Right, 7f * density, c)
-            else drawCircle(CP.OnDark.copy(alpha = 0.8f), 7f * density, c, style = Stroke(2f * density))
+        val ring = 16f * density
+        val matched = alignment?.matches.orEmpty()
+        t.forEachIndexed { j, c ->
+            val m = matched.firstOrNull { it.target == j }
+            when {
+                m?.hit == true -> {
+                    drawCircle(CP.Right, ring, c)
+                    val s = 6f * density
+                    drawLine(CP.OnDark, c + Offset(-s, 0f), c + Offset(-s * 0.2f, s * 0.8f), 2.5f * density)
+                    drawLine(CP.OnDark, c + Offset(-s * 0.2f, s * 0.8f), c + Offset(s * 1.1f, -s * 0.8f), 2.5f * density)
+                }
+                m != null -> {
+                    drawCircle(CP.Glass, ring, c)
+                    drawCircle(CP.OnDark, ring, c, style = Stroke(2.5f * density))
+                }
+                // A spot no thing is paired with (e.g. 2 things on a triangle): faint, so it doesn't ask for anything.
+                else -> drawCircle(CP.OnDark.copy(alpha = 0.4f), 7f * density, c, style = Stroke(1.5f * density))
+            }
+        }
+        // Arrow from each thing to its circle.
+        for (m in matched) {
+            if (m.hit) continue
+            val p = things.getOrNull(m.thing) ?: continue
+            val from = Offset(p.x * w, p.y * h)
+            val to = t.getOrNull(m.target) ?: continue
+            val d = to - from
+            val len = d.getDistance()
+            if (len < ring * 1.5f) continue
+            val u = d / len
+            val end = to - u * (ring + 4f * density)
+            drawCircle(CP.OnDark, 6f * density, from)
+            drawCircle(CP.Accent, 6f * density, from, style = Stroke(1.5f * density))
+            drawLine(CP.OnDark, from + u * (8f * density), end, 3f * density, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f * density, 7f * density)))
+            val head = 11f * density
+            val side = Offset(-u.y, u.x)
+            val arrow = Path().apply {
+                moveTo(end.x, end.y)
+                lineTo((end - u * head + side * head * 0.6f).x, (end - u * head + side * head * 0.6f).y)
+                lineTo((end - u * head - side * head * 0.6f).x, (end - u * head - side * head * 0.6f).y)
+                close()
+            }
+            drawPath(arrow, CP.OnDark)
         }
     }
 }
@@ -150,13 +225,12 @@ fun NoteChip(text: String?, modifier: Modifier = Modifier) {
     }
 }
 
-/** Name of the guide, shown briefly when it changes. */
+/** Which guide the camera picked and how many things it sees. Stays while the guide shows. */
 @Composable
-fun GuideChip(guide: Guide, visible: Boolean, modifier: Modifier = Modifier) {
+fun GuideChip(guide: Guide, count: Int, visible: Boolean, modifier: Modifier = Modifier) {
     AnimatedVisibility(visible = visible, enter = fadeIn(tween(200)) + slideInVertically(tween(200)) { it / 3 }, exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { it / 3 }, modifier = modifier) {
-        Column(Modifier.clip(CPShape.Pill).background(CP.Glass).padding(horizontal = 14.dp, vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(guide.label, style = CPType.CaptionMedium, color = CP.OnDark)
-            Text("Swipe to change the guide", style = CPType.Caption, color = CP.OnDark.copy(alpha = 0.75f))
+        Box(Modifier.clip(CPShape.Pill).background(CP.Glass).padding(horizontal = 14.dp, vertical = 8.dp)) {
+            Text("${guide.label} · $count ${if (count == 1) "thing" else "things"}", style = CPType.CaptionMedium, color = CP.OnDark)
         }
     }
 }
