@@ -38,6 +38,7 @@ object Thresholds {
     const val SHADOW = 60f
     const val EDGE_MARGIN = 0.01f
     const val TOO_CLOSE_AREA = 0.6f
+    const val TOO_SMALL_AREA = 0.03f
     const val NOT_FLAT_DEG = 10f
     const val NOT_LEVEL_DEG = 7f
 }
@@ -59,7 +60,7 @@ fun looksLike(name: String?): String? = name?.let { "Looks like ${withArticle(it
 fun thingName(name: String?): String = name?.replaceFirstChar { it.uppercase() } ?: "Photo"
 
 /** Priority: too dark → light → framing → guide → all good. One tip at a time (BRIEF.md). */
-fun decide(r: FrameResult?, guide: Guide, tilt: Tilt, zoom: Float, dismissed: (Thing) -> Boolean): TipDecision {
+fun decide(r: FrameResult?, guide: Guide, slots: Int, tilt: Tilt, zoom: Float, dismissed: (Thing) -> Boolean): TipDecision {
     if (r == null) return TipDecision.NONE
     if (r.meanY < Thresholds.TOO_DARK) return TipDecision("dark", TipKind.Note, "Too dark for me to see. Try more light, or just shoot.")
     val main = r.things.firstOrNull() ?: return TipDecision.NONE   // not sure: no edge, no tip
@@ -83,9 +84,9 @@ fun decide(r: FrameResult?, guide: Guide, tilt: Tilt, zoom: Float, dismissed: (T
     if (!tilt.flat && tilt != Tilt.Unknown && abs(tilt.rollDeg) > Thresholds.NOT_LEVEL_DEG && abs(tilt.rollDeg) < 45f) return framing("level", "Hold the phone level.", "The table edge looks tilted")
 
     val points = r.things.map { P(it.cx, it.cy) }
-    val al = alignment(guide, points)
+    val al = alignment(guide, points, slots)
     if (!al.done) {
-        val t = targets(guide, points.size)
+        val t = targets(guide, slots)
         val misses = al.matches.filter { !it.hit }
         val worst = misses.maxBy { m -> hypot(t[m.target].x - points[m.thing].x, t[m.target].y - points[m.thing].y) }
         val way = direction(t[worst.target].x - points[worst.thing].x, t[worst.target].y - points[worst.thing].y)

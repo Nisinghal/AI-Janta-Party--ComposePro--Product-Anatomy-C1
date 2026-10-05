@@ -68,6 +68,8 @@ import com.composepro.app.PendingPhoto
 import com.composepro.app.Screen
 import com.composepro.app.camera.FrameAnalyzer
 import com.composepro.app.camera.FrameResult
+import com.composepro.app.camera.Thing
+import com.composepro.app.camera.Thresholds
 import com.composepro.app.camera.TipDecision
 import com.composepro.app.camera.TipKind
 import com.composepro.app.camera.decide
@@ -75,6 +77,9 @@ import com.composepro.app.camera.thingName
 import com.composepro.app.camera.rememberTilt
 import com.composepro.app.data.PhotoStore
 import com.composepro.app.guide.Guide
+import com.composepro.app.guide.GuidePick
+import com.composepro.app.guide.describe
+import com.composepro.app.guide.pickGuide
 import com.composepro.app.guide.P
 import com.composepro.app.guide.alignment
 import com.composepro.app.ui.theme.CP
@@ -95,6 +100,11 @@ private val fourByThree = ResolutionSelector.Builder()
 
 /** A tip appears only after the same thing has been seen for about a second (AX_SPEC). */
 private const val SETTLE_MS = 900L
+
+/** How long the camera looks before it picks a guide, how long it explains the pick, and how long a changed count must last before it looks again. */
+private const val SCAN_MS = 3000L
+private const val EXPLAIN_MS = 3500L
+private const val RELOOK_MS = 2500L
 
 @Composable
 fun CameraScreen(state: AppState) {
@@ -155,13 +165,43 @@ fun CameraScreen(state: AppState) {
     LaunchedEffect(toast) { if (toast != null) { delay(2600); toast = null } }
     LaunchedEffect(Unit) { while (true) { delay(200); now = SystemClock.elapsedRealtime() } }
 
-    // ---- what to show: raw decision, then settled so tips don't flicker ----
+    // ---- 1. Look for 3 seconds, then pick a guide from what was seen and keep it (user decision, 2026-10-05) ----
     val count = frame?.things?.size ?: 0
-    // The camera picks the guide from what it sees; there's no manual switch (user decision, 2026-10-05).
-    val guide = Guide.autoFor(count)
-    val raw = if (!state.tipsOn) TipDecision.NONE else decide(frame, guide, tilt, zoom) { thing ->
+    var pick by remember { mutableStateOf<GuidePick?>(null) }
+    var scanStart by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
+    var pickedAt by remember { mutableLongStateOf(0L) }
+    val samples = remember { mutableListOf<List<Thing>>() }
+    var mismatchSince by remember { mutableLongStateOf(0L) }
+    fun lookAgain() { pick = null; samples.clear(); scanStart = SystemClock.elapsedRealtime(); mismatchSince = 0L }
+    LaunchedEffect(frame) {
+        val f = frame ?: return@LaunchedEffect
+        val t = SystemClock.elapsedRealtime()
+        val p = pick
+        if (p == null) {
+            if (f.meanY < Thresholds.TOO_DARK) { samples.clear(); scanStart = t; return@LaunchedEffect }
+            samples += f.things
+            if (t - scanStart < SCAN_MS) return@LaunchedEffect
+            // The count seen most often over the 3 seconds, so one missed or doubled frame doesn't decide it.
+            val usual = samples.groupingBy { it.size }.eachCount().maxBy { it.value }.key
+            if (usual == 0) { samples.clear(); scanStart = t; return@LaunchedEffect }
+            pick = pickGuide(samples.last { it.size == usual }, tilt.flat)
+            pickedAt = t
+        } else if (f.things.size != p.slots) {
+            // Something added or taken away (not just a missed frame): look again.
+            if (mismatchSince == 0L) mismatchSince = t else if (t - mismatchSince > RELOOK_MS) lookAgain()
+        } else mismatchSince = 0L
+    }
+    val scanning = state.tipsOn && pick == null
+    val explaining = pick != null && now - pickedAt < EXPLAIN_MS
+    val guide = pick?.guide ?: Guide.Centre
+    val slots = pick?.slots ?: 1
+
+    // ---- 2. Tips: raw decision, then settled so they don't flicker ----
+    val decided = if (!state.tipsOn) TipDecision.NONE else decide(frame, guide, slots, tilt, zoom) { thing ->
         SystemClock.elapsedRealtime() < dismissedUntil || (thing.id != null && dismissedIds[thing.id] == true)
     }
+    // While looking and while explaining the pick, only the "too dark" note can show.
+    val raw = if ((scanning || explaining) && decided.kind != TipKind.Note) TipDecision.NONE else decided
     var shown by remember { mutableStateOf(TipDecision.NONE) }
     var pendingKey by remember { mutableStateOf<String?>(null) }
     var pendingSince by remember { mutableLongStateOf(0L) }
@@ -177,17 +217,11 @@ fun CameraScreen(state: AppState) {
     }
     val things = frame?.things.orEmpty()
     val points = things.map { P(it.cx, it.cy) }
-    val guideAlignment = if (points.isEmpty()) null else alignment(guide, points)
-    val guideVisible = state.tipsOn && count > 0 && shown.kind != TipKind.Note
-    // When nothing's recognised for a while, say so, so it's clear the camera is looking.
-    var lastSeenAt by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
-    LaunchedEffect(count) { if (count > 0) lastSeenAt = SystemClock.elapsedRealtime() }
-    val looking = state.tipsOn && frame != null && count == 0 && now - lastSeenAt > 1500
-    val note = when {
-        shown.kind == TipKind.Note -> shown.line1
-        looking -> "Point at what you want to shoot. I'll mark what I see."
-        else -> null
-    }
+    val guideAlignment = if (points.isEmpty() || pick == null) null else alignment(guide, points, slots)
+    val dark = shown.kind == TipKind.Note
+    val marksVisible = state.tipsOn && count > 0 && !dark
+    val guideVisible = marksVisible && pick != null
+    val scanProgress = ((now - scanStart).toFloat() / SCAN_MS).coerceIn(0f, 1f)
 
     fun takePhoto() {
         if (taking || unavailable) return
@@ -246,13 +280,27 @@ fun CameraScreen(state: AppState) {
     Column(Modifier.fillMaxSize().background(CP.CameraBar).statusBarsPadding()) {
         Box(Modifier.fillMaxWidth().aspectRatio(3f / 4f).clip(CPShape.Sheet).then(gestures)) {
             AndroidView({ previewView }, Modifier.fillMaxSize())
-            GridLayer(state.tipsOn && shown.kind != TipKind.Note, Modifier.fillMaxSize())
-            ThingsLayer(things, guideVisible, Modifier.fillMaxSize())
-            GuideLayer(guide, count, guideAlignment, points, guideVisible, Modifier.fillMaxSize())
+            GridLayer(state.tipsOn && !dark, Modifier.fillMaxSize())
+            ThingsLayer(things, marksVisible, Modifier.fillMaxSize())
+            GuideLayer(guide, slots, guideAlignment, points, guideVisible, Modifier.fillMaxSize())
             EdgeLayer(shown.main, shown.edge, Modifier.fillMaxSize())
             TipCapsule(shown, ::notRight, Modifier.align(Alignment.TopCenter).padding(top = CPSpace.S2, start = CPSpace.S3, end = CPSpace.S3))
-            NoteChip(note, Modifier.align(Alignment.TopCenter).padding(top = CPSpace.S2))
-            GuideChip(guide, count, guideVisible, Modifier.align(Alignment.BottomCenter).padding(bottom = CPSpace.S2))
+            NoteChip(if (dark) shown.line1 else null, Modifier.align(Alignment.TopCenter).padding(top = CPSpace.S2))
+            val top = Modifier.align(Alignment.TopCenter).padding(top = CPSpace.S2, start = CPSpace.S3, end = CPSpace.S3)
+            InfoCapsule(
+                visible = scanning && !dark,
+                line1 = if (count == 0 && now - scanStart > 1500) "Point at what you want to shoot." else "Looking at what's here…",
+                line2 = if (count == 0) "I'll mark everything I recognise." else "Hold still. Found ${describe(things)} so far.",
+                progress = scanProgress,
+                modifier = top,
+            )
+            InfoCapsule(
+                visible = explaining && !dark,
+                line1 = pick?.let { "I see ${it.seen}. Let's use ${it.guide.label}." } ?: "",
+                line2 = pick?.why ?: "",
+                modifier = top,
+            )
+            GuideChip(pick, guideVisible && !explaining, ::lookAgain, Modifier.align(Alignment.BottomCenter).padding(bottom = CPSpace.S2))
             ZoomChip(zoom, now - zoomShownAt < 900, Modifier.align(Alignment.Center))
             Box(Modifier.fillMaxSize().alpha(flash.value).background(CP.OnDark))
             Box(Modifier.fillMaxSize().alpha(cover.value).background(CP.CameraBar))

@@ -118,7 +118,7 @@ class FrameAnalyzer(private val context: Context, private val onResult: (FrameRe
         fresh.forEach { recent[it.id!!] = it to now }
         recent.entries.removeAll { now - it.value.second > 600 }
         val held = recent.filterKeys { it !in used }.values.map { it.first }
-        return (fresh + held).sortedByDescending { it.area }.take(5)
+        return (fresh + held).sortedByDescending { it.area }.take(6)
     }
 
     private class Light(val meanY: Float, val centerY: Float, val clipFrac: Float, val warmth: Float)

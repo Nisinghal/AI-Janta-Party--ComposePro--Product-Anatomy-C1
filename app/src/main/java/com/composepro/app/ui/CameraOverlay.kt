@@ -1,6 +1,7 @@
 package com.composepro.app.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -13,7 +14,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,7 +39,9 @@ import com.composepro.app.camera.Thing
 import com.composepro.app.camera.TipDecision
 import com.composepro.app.guide.Alignment as GuideAlignment
 import com.composepro.app.guide.Guide
+import com.composepro.app.guide.GuidePick
 import com.composepro.app.guide.P
+import com.composepro.app.guide.Ring
 import com.composepro.app.guide.Spiral
 import com.composepro.app.guide.targets
 import com.composepro.app.ui.theme.CP
@@ -107,6 +113,20 @@ fun GuideLayer(guide: Guide, count: Int, alignment: GuideAlignment?, things: Lis
                 drawPath(p, line, style = Stroke(stroke, pathEffect = dashed))
             }
             Guide.Diagonal -> drawLine(line, Offset(0.1f * w, 0.18f * h), Offset(0.9f * w, 0.82f * h), stroke, pathEffect = dashed)
+            Guide.FrontBack -> drawLine(line, t[0], t[1], stroke, pathEffect = dashed)
+            Guide.Grid -> {
+                // A dashed frame around the spots, so it reads as rows rather than loose dots.
+                val pad = 30f * density
+                val l = t.minOf { it.x } - pad; val r = t.maxOf { it.x } + pad
+                val tp = t.minOf { it.y } - pad; val b = t.maxOf { it.y } + pad
+                drawRoundRect(line, Offset(l, tp), Size(r - l, b - tp), CornerRadius(12f * density), style = Stroke(stroke, pathEffect = dashed))
+            }
+            Guide.Circle -> drawOval(
+                line,
+                Offset((Ring.centre.x - Ring.RX) * w, (Ring.centre.y - Ring.RY) * h),
+                Size(2 * Ring.RX * w, 2 * Ring.RY * h),
+                style = Stroke(stroke, pathEffect = dashed),
+            )
             Guide.Spiral -> {
                 val p = Path()
                 var tt = 0f
@@ -225,12 +245,37 @@ fun NoteChip(text: String?, modifier: Modifier = Modifier) {
     }
 }
 
-/** Which guide the camera picked and how many things it sees. Stays while the guide shows. */
+/** Which guide the camera picked and for what. Stays while the guide shows; tap to make the camera look again. */
 @Composable
-fun GuideChip(guide: Guide, count: Int, visible: Boolean, modifier: Modifier = Modifier) {
-    AnimatedVisibility(visible = visible, enter = fadeIn(tween(200)) + slideInVertically(tween(200)) { it / 3 }, exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { it / 3 }, modifier = modifier) {
-        Box(Modifier.clip(CPShape.Pill).background(CP.Glass).padding(horizontal = 14.dp, vertical = 8.dp)) {
-            Text("${guide.label} · $count ${if (count == 1) "thing" else "things"}", style = CPType.CaptionMedium, color = CP.OnDark)
+fun GuideChip(pick: GuidePick?, visible: Boolean, onLookAgain: () -> Unit, modifier: Modifier = Modifier) {
+    AnimatedVisibility(visible = visible && pick != null, enter = fadeIn(tween(200)) + slideInVertically(tween(200)) { it / 3 }, exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { it / 3 }, modifier = modifier) {
+        Column(
+            Modifier.clip(CPShape.Pill).background(CP.Glass).clickable(role = Role.Button, onClick = onLookAgain)
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text("${pick?.guide?.label} · ${pick?.seen}", style = CPType.CaptionMedium, color = CP.OnDark)
+            Text("Tap to look again", style = CPType.Caption, color = CP.OnDark.copy(alpha = 0.75f))
+        }
+    }
+}
+
+/** A two-line glass card for what the camera is doing: looking (with a 3-second bar), then what it picked and why. */
+@Composable
+fun InfoCapsule(visible: Boolean, line1: String, line2: String, modifier: Modifier = Modifier, progress: Float? = null) {
+    AnimatedVisibility(visible = visible, enter = fadeIn(tween(200)), exit = fadeOut(tween(150)), modifier = modifier) {
+        Column(
+            Modifier.widthIn(max = 320.dp).clip(CPShape.Card).background(CP.Glass).padding(horizontal = 18.dp, vertical = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(line1, style = CPType.BodyStrong, color = CP.OnDark, textAlign = TextAlign.Center)
+            Text(line2, style = CPType.Caption, color = CP.OnDark.copy(alpha = 0.75f), textAlign = TextAlign.Center)
+            if (progress != null) {
+                val p by animateFloatAsState(progress, tween(200, easing = LinearEasing), label = "scan")
+                Box(Modifier.padding(top = 8.dp).width(160.dp).height(3.dp).clip(CPShape.Pill).background(CP.OnDark.copy(alpha = 0.25f))) {
+                    Box(Modifier.fillMaxWidth(p).height(3.dp).background(CP.OnDark))
+                }
+            }
         }
     }
 }
