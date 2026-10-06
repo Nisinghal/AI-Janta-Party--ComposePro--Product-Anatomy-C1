@@ -23,13 +23,13 @@ android {
         // Real phones only: MediaPipe's emulator (x86) copies would double the app's size.
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
 
-        // "Ask photographer" uses the Claude API. The key lives in local.properties, which never goes to GitHub:
-        //   ANTHROPIC_API_KEY=sk-ant-...
+        // "Ask photographer" uses Google's Gemini API (free tier). The key lives in local.properties, which never goes to GitHub:
+        //   GEMINI_API_KEY=...
         // Without it the app still works; the button explains that a key is needed.
         val local = Properties().apply {
             rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
         }
-        buildConfigField("String", "ANTHROPIC_API_KEY", "\"${local.getProperty("ANTHROPIC_API_KEY", "")}\"")
+        buildConfigField("String", "GEMINI_API_KEY", "\"${local.getProperty("GEMINI_API_KEY", "")}\"")
     }
 
     buildTypes {
@@ -47,10 +47,6 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
-    }
-    packaging {
-        // The Claude SDK's libraries each ship the same licence/notice files.
-        resources { excludes += setOf("META-INF/DEPENDENCIES", "META-INF/LICENSE*", "META-INF/NOTICE*", "META-INF/INDEX.LIST", "META-INF/*.kotlin_module", "META-INF/versions/9/OSGI-INF/MANIFEST.MF") }
     }
     // The detection model is read straight from the APK, so it must stay uncompressed.
     androidResources {
@@ -74,7 +70,6 @@ dependencies {
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
     implementation(libs.mediapipe.tasks.vision)
-    implementation(libs.anthropic.java)
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)

@@ -10,7 +10,7 @@
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
 
-    <!-- Internet is used only by "Ask photographer", which sends one frame to Claude when the
+    <!-- Internet is used only by "Ask photographer", which sends one frame to Google Gemini when the
          person taps it (user decision, 2026-10-06). Live tips stay on the phone. Google's
          anonymous usage logging (pulled in by MediaPipe) is switched off further down. -->
     <uses-permission android:name="android.permission.INTERNET" />

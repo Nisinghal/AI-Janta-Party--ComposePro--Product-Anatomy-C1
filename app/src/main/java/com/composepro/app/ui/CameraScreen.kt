@@ -262,7 +262,7 @@ fun CameraScreen(state: AppState) {
         )
     }
 
-    // ---- Ask photographer: one frame to Claude, only when tapped ----
+    // ---- Ask photographer: one frame to Gemini, only when tapped ----
     var asking by remember { mutableStateOf(false) }
     var advice by remember { mutableStateOf<AskResult?>(null) }
     fun askPhotographer() {

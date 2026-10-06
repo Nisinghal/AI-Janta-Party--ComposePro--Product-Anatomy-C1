@@ -37,7 +37,7 @@ fun FirstOpenScreen(refused: Boolean, asking: Boolean, onAllow: () -> Unit, onOp
             } else {
                 PillButton("Allow camera", onAllow, Modifier.fillMaxWidth(), loading = asking)
             }
-            Text("Your photos stay on your phone. \"Ask photographer\" sends one camera view to Claude, only when you tap it.", style = CPType.Caption, color = CP.Muted)
+            Text("Your photos stay on your phone. \"Ask photographer\" sends one camera view to Google Gemini, only when you tap it.", style = CPType.Caption, color = CP.Muted)
         }
     }
 }
