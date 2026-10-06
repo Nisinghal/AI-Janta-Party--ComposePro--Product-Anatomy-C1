@@ -95,7 +95,7 @@ fun SettingsScreen(state: AppState) {
                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = CP.Muted)
                 }
 
-                Text("Your photos stay on your phone. \"Ask photographer\" sends one camera view to Google Gemini, only when you tap it.", style = CPType.Caption, color = CP.Muted)
+                Text("Your photos stay on your phone. To suggest steps, the camera view is sent to Google Gemini while the camera is open.", style = CPType.Caption, color = CP.Muted)
             }
         }
         if (cleared) GlassToast("Cleared.", Modifier.align(Alignment.BottomCenter).safeDrawingPadding().padding(bottom = CPSpace.S4))

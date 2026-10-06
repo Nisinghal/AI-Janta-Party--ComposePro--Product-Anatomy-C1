@@ -50,7 +50,7 @@ data class StepView(val move: Move, val done: Boolean, val live: Boolean, val no
  * when the photographer looks again after the person changes something (user decision, 2026-10-06).
  */
 @Composable
-fun CoachCard(seen: String, steps: List<StepView>, next: String?, ready: Boolean, checking: Boolean, error: String?, onClose: () -> Unit, modifier: Modifier = Modifier) {
+fun CoachCard(steps: List<StepView>, next: String?, ready: Boolean, checking: Boolean, error: String?, onClose: () -> Unit, modifier: Modifier = Modifier) {
     val doneCount = steps.count { it.done }
     val allDone = ready || (steps.isNotEmpty() && doneCount == steps.size)
     Column(
@@ -59,8 +59,8 @@ fun CoachCard(seen: String, steps: List<StepView>, next: String?, ready: Boolean
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                if (steps.isEmpty()) "PHOTOGRAPHER" else "PHOTOGRAPHER · $doneCount OF ${steps.size} DONE",
-                style = CPType.Caption, color = CP.OnDark.copy(alpha = 0.6f), modifier = Modifier.weight(1f),
+                if (steps.isEmpty()) "Better shot" else "Better shot · $doneCount of ${steps.size} done",
+                style = CPType.CaptionMedium, color = CP.OnDark.copy(alpha = 0.75f), modifier = Modifier.weight(1f),
             )
             if (checking) {
                 CircularProgressIndicator(Modifier.size(12.dp), color = CP.OnDark.copy(alpha = 0.7f), strokeWidth = 1.5.dp)
@@ -72,7 +72,6 @@ fun CoachCard(seen: String, steps: List<StepView>, next: String?, ready: Boolean
                 contentAlignment = Alignment.Center,
             ) { Text("✕", style = CPType.BodyMedium, color = CP.OnDark) }
         }
-        Text(seen, style = CPType.Caption, color = CP.OnDark.copy(alpha = 0.8f))
         steps.forEachIndexed { i, s -> StepRow(i, s) }
         val footer = when {
             allDone -> "✓ All done. Take the photo."
@@ -86,6 +85,22 @@ fun CoachCard(seen: String, steps: List<StepView>, next: String?, ready: Boolean
             )
         }
         error?.let { Text(it, style = CPType.Caption, color = CP.OnDark.copy(alpha = 0.85f), modifier = Modifier.padding(top = CPSpace.S1)) }
+    }
+}
+
+/** The same card while the steps are being worked out, so there's only ever one thing to read. */
+@Composable
+fun FindingCard(modifier: Modifier = Modifier) {
+    Row(
+        modifier.widthIn(max = 380.dp).fillMaxWidth().clip(CPShape.Card).background(CP.Glass.copy(alpha = 0.88f))
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CircularProgressIndicator(Modifier.size(18.dp), color = CP.OnDark, strokeWidth = 2.dp)
+        Column(Modifier.padding(start = 12.dp)) {
+            Text("Finding the best shot…", style = CPType.BodyStrong, color = CP.OnDark)
+            Text("Hold the phone still for a second.", style = CPType.Caption, color = CP.OnDark.copy(alpha = 0.75f))
+        }
     }
 }
 

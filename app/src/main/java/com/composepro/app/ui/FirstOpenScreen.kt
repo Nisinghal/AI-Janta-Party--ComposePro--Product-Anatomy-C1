@@ -28,7 +28,7 @@ fun FirstOpenScreen(refused: Boolean, asking: Boolean, onAllow: () -> Unit, onOp
         }
         Column(verticalArrangement = Arrangement.spacedBy(CPSpace.S1)) {
             Text("Compose Pro", style = CPType.Display, color = CP.Ink)
-            Text("Point at your food. If something's off, you'll get a tip.", style = CPType.Body, color = CP.Ink)
+            Text("Point at anything. You'll get a few steps to a better photo.", style = CPType.Body, color = CP.Ink)
         }
         Column(verticalArrangement = Arrangement.spacedBy(CPSpace.S2)) {
             if (refused) {
@@ -37,7 +37,7 @@ fun FirstOpenScreen(refused: Boolean, asking: Boolean, onAllow: () -> Unit, onOp
             } else {
                 PillButton("Allow camera", onAllow, Modifier.fillMaxWidth(), loading = asking)
             }
-            Text("Your photos stay on your phone. \"Ask photographer\" sends one camera view to Google Gemini, only when you tap it.", style = CPType.Caption, color = CP.Muted)
+            Text("Your photos stay on your phone. To suggest steps, the camera view is sent to Google Gemini while the camera is open.", style = CPType.Caption, color = CP.Muted)
         }
     }
 }

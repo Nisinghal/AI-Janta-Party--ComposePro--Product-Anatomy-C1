@@ -34,9 +34,9 @@ import kotlinx.coroutines.launch
 private data class TourCard(val text: String, val edge: EdgeState, val warm: Boolean, val tip: Boolean)
 
 private val cards = listOf(
-    TourCard("Point at your food. If something's off, a tip appears.", EdgeState.Off, warm = true, tip = false),
-    TourCard("Red edge: something's off, read the tip. Green edge with ✓: you've got it.", EdgeState.Off, warm = true, tip = true),
-    TourCard("Tips are just tips. The shutter always works.", EdgeState.Right, warm = false, tip = false),
+    TourCard("Point at anything. In a moment you'll get a few steps to a better photo.", EdgeState.Off, warm = true, tip = false),
+    TourCard("Red number: still to do. It turns into a green ✓ by itself when you've done it.", EdgeState.Off, warm = true, tip = true),
+    TourCard("Steps are just suggestions. The shutter always works.", EdgeState.Right, warm = false, tip = false),
 )
 
 @Composable

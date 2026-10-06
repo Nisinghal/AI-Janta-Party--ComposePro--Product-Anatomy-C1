@@ -368,12 +368,16 @@ fun CameraScreen(state: AppState) {
     val ringStep = steps.indexOfFirst { !it.done && it.live && it.move.check == CheckBy.Frame }
     val ringMove = steps.getOrNull(ringStep)?.move
     val allDone = coach != null && (coach!!.ready || (steps.isNotEmpty() && steps.all { it.done }))
-    val photographerOn = coach != null || (busy && askError == null)
-
-    // ---- Automatic (user decision, 2026-10-06): no buttons. After the 3-second look the photographer is asked by
-    // itself; steps the phone can't measure are re-checked by themselves once the person has changed something and
-    // holds still. Requests are spaced out to stay inside Gemini's free limits. A new look clears the old plan. ----
+    // Set when the person closes the card (✕): quick tips for the rest of this scene.
+    var closedFor by remember { mutableLongStateOf(-1L) }
     val auto = state.tipsOn && Photographer.hasKey
+    /** The photographer owns the screen: its card is up, or it's about to be (asking, no failure, not closed). */
+    val photographerOn = coach != null || (auto && askError == null && closedFor != scanStart && !dark)
+
+    // ---- Automatic (user decisions, 2026-10-06): no buttons. The photographer is asked as soon as the view has been
+    // up for 0.8s (not after the 3-second look: too slow). Steps the phone can't measure are re-checked by themselves
+    // once the person has changed something and holds still, spaced out to stay inside Gemini's free limits.
+    // A new look (scene changed) clears the old plan and asks again. ----
     var askedFor by remember { mutableLongStateOf(-1L) }
     var scene by remember { mutableStateOf<List<Int>>(emptyList()) }
     var sceneChangedAt by remember { mutableLongStateOf(0L) }
@@ -388,15 +392,15 @@ fun CameraScreen(state: AppState) {
     }
     LaunchedEffect(now) {
         if (!auto || busy || dark) return@LaunchedEffect
-        val p = pick ?: return@LaunchedEffect
         val c = coach
         if (c == null) {
-            val firstAsk = askedFor != pickedAt
+            if (closedFor == scanStart || frame == null) return@LaunchedEffect
+            val firstAsk = askedFor != scanStart && now - scanStart >= 800
             val retry = askError != null && now - lastReqAt > 30_000
-            if (firstAsk || retry) { askedFor = pickedAt; askPhotographer() }
+            if (firstAsk || retry) { askedFor = scanStart; askPhotographer() }
             return@LaunchedEffect
         }
-        if (allDone || p.count == 0) return@LaunchedEffect
+        if (allDone) return@LaunchedEffect
         if (steps.none { !it.done && !it.live }) return@LaunchedEffect
         val sinceReq = now - lastReqAt
         val settled = now - sceneChangedAt >= 1500
@@ -451,16 +455,10 @@ fun CameraScreen(state: AppState) {
             NoteChip(if (dark) shown.phone else null, Modifier.align(Alignment.TopCenter).padding(top = CPSpace.S2))
             val top = Modifier.align(Alignment.TopCenter).padding(top = CPSpace.S2, start = CPSpace.S3, end = CPSpace.S3)
             InfoCapsule(
-                visible = scanning && !dark && !photographerOn,
+                visible = scanning && !dark && !photographerOn && !auto,
                 line1 = if (count == 0 && now - scanStart > 1500) "Point at what you want to shoot." else "Looking at what's here…",
                 line2 = if (count == 0) "I'll mark everything I recognise." else "Hold still. Found ${describe(things)} so far.",
                 progress = scanProgress,
-                modifier = top,
-            )
-            InfoCapsule(
-                visible = busy && coach == null && !dark,
-                line1 = "Looking like a photographer…",
-                line2 = "Working out how to make ${if (things.isEmpty()) "this" else describe(things.take(slots))} look its best.",
                 modifier = top,
             )
             InfoCapsule(
@@ -478,10 +476,13 @@ fun CameraScreen(state: AppState) {
                     Text("Camera isn't available right now. Close other apps using it and try again.", style = CPType.Body, color = CP.OnDark, textAlign = TextAlign.Center)
                 }
             }
+            // One card, one place: "Finding the best shot…" while it works, then the steps.
+            val bottom = Modifier.align(Alignment.BottomCenter).padding(CPSpace.S2)
+            if (coach == null && photographerOn) FindingCard(bottom)
             coach?.let { c ->
                 CoachCard(
-                    seen = c.advice.seen, steps = steps, next = c.next, ready = allDone, checking = busy, error = checkError,
-                    onClose = ::closeCoach, modifier = Modifier.align(Alignment.BottomCenter).padding(CPSpace.S2),
+                    steps = steps, next = c.next, ready = allDone, checking = busy, error = checkError,
+                    onClose = { closeCoach(); closedFor = scanStart }, modifier = bottom,
                 )
             }
             toast?.let { GlassToast(it, Modifier.align(Alignment.BottomCenter).padding(bottom = CPSpace.S3)) }

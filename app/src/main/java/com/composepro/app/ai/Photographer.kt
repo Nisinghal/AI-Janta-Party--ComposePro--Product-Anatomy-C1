@@ -59,7 +59,13 @@ object Photographer {
      * (seen 2026-10-06), so a busy, missing or rate-limited model falls through to the next one.
      * The "-latest" aliases move forward with each Google release.
      */
-    private val MODELS = listOf("gemini-flash-latest", "gemini-flash-lite-latest", "gemini-2.5-flash")
+    private val MODELS = listOf("gemini-flash-lite-latest", "gemini-flash-latest", "gemini-2.5-flash")
+
+    /**
+     * The model that answered last time is tried first, so a busy one doesn't cost a round trip on every ask.
+     * Flash-Lite leads the list: it's the quickest and rarely busy (speed matters most, user feedback 2026-10-06).
+     */
+    @Volatile private var lastGood: String? = null
     private fun endpoint(model: String) = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"
 
     private val PERSONA = """
@@ -174,7 +180,8 @@ object Photographer {
             .toString()
 
         var last: Reply<String> = Reply.Failed("The photographer is busy right now. Try again in a moment.")
-        for (model in MODELS) {
+        for (model in (listOfNotNull(lastGood) + MODELS).distinct()) {
+            val started = System.currentTimeMillis()
             val (code, reply) = try {
                 post(model, body)
             } catch (e: SocketTimeoutException) {
@@ -183,11 +190,12 @@ object Photographer {
                 return Reply.Failed("Couldn't reach the photographer. Check your internet and try again.")
             }
             if (code in 200..299) {
+                lastGood = model
                 val answer = answerText(reply)
-                Log.i("ComposePro", "Gemini $model answered: ${answer ?: reply.take(400)}")
+                Log.i("ComposePro", "Gemini $model answered in ${System.currentTimeMillis() - started} ms: ${answer ?: reply.take(400)}")
                 return answer?.let { Reply.Ok(it) } ?: Reply.Failed("The photographer couldn't answer this time. Try again.")
             }
-            Log.w("ComposePro", "Gemini $model error $code: ${reply.take(300)}")
+            Log.w("ComposePro", "Gemini $model error $code after ${System.currentTimeMillis() - started} ms: ${reply.take(200)}")
             when {
                 code == 400 && "API_KEY_INVALID" in reply -> return Reply.Failed("The Gemini API key isn't working. Check it in local.properties.")
                 code == 403 -> return Reply.Failed("The Gemini API key isn't allowed to do this. Check it in Google AI Studio.")
@@ -276,12 +284,12 @@ object Photographer {
         null
     }
 
-    /** About 1000px on the long side is plenty to judge a composition, and keeps the upload small and quick. */
+    /** About 768px on the long side is plenty to judge a composition, and keeps the upload small and quick. */
     private fun toJpegBase64(src: Bitmap): String {
-        val scale = minOf(1f, 1024f / max(src.width, src.height))
+        val scale = minOf(1f, 768f / max(src.width, src.height))
         val bmp = if (scale < 1f) Bitmap.createScaledBitmap(src, (src.width * scale).roundToInt(), (src.height * scale).roundToInt(), true) else src
         val out = ByteArrayOutputStream()
-        bmp.compress(Bitmap.CompressFormat.JPEG, 80, out)
+        bmp.compress(Bitmap.CompressFormat.JPEG, 75, out)
         return Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
     }
 }
