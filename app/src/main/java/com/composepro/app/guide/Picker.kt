@@ -11,7 +11,7 @@ enum class Angle { Above, Diner, Eye, Any }
  * the best phone angle for the main subject, and a plain explanation.
  */
 /** [count] = how many things were in view when it picked, so it can tell when the scene really changes. */
-data class GuidePick(val guide: Guide, val slots: Int, val seen: String, val why: String, val angle: Angle, val subject: String?, val count: Int) {
+data class GuidePick(val guide: Guide, val slots: Int, val seen: String, val why: String, val angle: Angle, val subject: String?, val count: Int, val mainId: Int?) {
     /** Two or more separate things: there's an arrangement to make as well as a phone position. */
     val arranging get() = slots >= 2
 }
@@ -54,7 +54,7 @@ fun pickGuide(all: List<Thing>, tilt: Tilt): GuidePick? {
     val name = main.category
     // A group: mostly tall things → from the side; otherwise a flat lay from above, like the reference images.
     val angle = if (n == 1) angleFor(name) else if (things.take(n).count { it.category in tall } * 2 > n) Angle.Eye else Angle.Above
-    fun pick(g: Guide, why: String) = GuidePick(g, n, seen, why, angle, name, all.size)
+    fun pick(g: Guide, why: String) = GuidePick(g, n, seen, why, angle, name, all.size, main.id)
 
     return when (n) {
         1 -> when {

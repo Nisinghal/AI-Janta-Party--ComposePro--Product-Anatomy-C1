@@ -193,7 +193,7 @@ fun CameraScreen(state: AppState) {
             if (usual == 0) { samples.clear(); scanStart = t; return@LaunchedEffect }
             pick = pickGuide(samples.last { it.size == usual }, tilt)
             pickedAt = t
-        } else if (f.things.size != p.count || (p.slots == 1 && f.things.firstOrNull()?.category != p.subject)) {
+        } else if (f.things.size != p.count || (p.slots == 1 && f.things.none { it.id == p.mainId })) {
             // Something added or taken away, or the phone pointed somewhere else, for a good while
             // (not a missed frame or a hand passing through): look again. Tapping the label also does it.
             if (mismatchSince == 0L) mismatchSince = t else if (t - mismatchSince > RELOOK_MS) lookAgain()

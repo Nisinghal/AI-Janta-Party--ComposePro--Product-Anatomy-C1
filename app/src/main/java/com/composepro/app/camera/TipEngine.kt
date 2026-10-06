@@ -77,10 +77,12 @@ private class PhoneTip(val key: String, val kind: TipKind, val text: String, val
 fun decide(r: FrameResult?, pick: GuidePick, tilt: Tilt, zoom: Float, dismissed: (Thing) -> Boolean): TipDecision {
     if (r == null) return TipDecision.NONE
     if (r.meanY < Thresholds.TOO_DARK) return TipDecision("dark", TipKind.Note, "Too dark for me to see. Try more light, or just shoot.")
-    val main = r.things.firstOrNull() ?: return TipDecision.NONE   // not sure: no edge, no tip
+    // One subject: follow the same object it picked, even if it isn't the biggest this frame or its name wobbles.
+    val main = r.things.firstOrNull { pick.slots == 1 && it.id == pick.mainId } ?: r.things.firstOrNull()
+        ?: return TipDecision.NONE   // not sure: no edge, no tip
     if (dismissed(main)) return TipDecision.NONE
 
-    val used = r.things.take(pick.slots)
+    val used = if (pick.slots == 1) listOf(main) else r.things.take(pick.slots)
     val group = RectF(used[0].box).apply { used.drop(1).forEach { union(it.box) } }
     val single = used.size == 1
     val subject = if (single) main else Thing(null, group, null)
@@ -127,13 +129,13 @@ private fun phoneTip(
         val single = used.size == 1
         val animal = single && used[0].category in animals
         when (if (single) angleFor(used[0].category) else pick.angle) {
-            Angle.Above -> if (off > 25f) return frame("angle-above", "Hold the phone flat above it.", "Flat things look best from straight above")
+            Angle.Above -> if (off > 25f) return frame("angle", "Hold the phone flat above it.", "Flat things look best from straight above")
             Angle.Eye -> if (off < 60f) return frame(
-                "angle-eye",
+                "angle",
                 if (animal) "Get down to its eye level." else "Lower the phone to $name's height.",
                 if (animal) "Animals look best at their own eye level" else "Tall things look best from the side",
             )
-            Angle.Diner -> if (off < 20f || off > 75f) return frame("angle-diner", "Tilt the phone, like you're sitting at the table.", "A 45° angle shows the top and the side")
+            Angle.Diner -> if (off < 20f || off > 75f) return frame("angle", "Tilt the phone, like you're sitting at the table.", "A 45° angle shows the top and the side")
             Angle.Any -> Unit
         }
         if (!tilt.flat && abs(tilt.rollDeg) > Thresholds.NOT_LEVEL_DEG && abs(tilt.rollDeg) < 45f) {
@@ -143,11 +145,11 @@ private fun phoneTip(
 
     val m = Thresholds.EDGE_MARGIN
     if (group.left <= m || group.top <= m || group.right >= 1 - m || group.bottom >= 1 - m) {
-        return frame("cut", "Step back a little.", "Part of it is cut off at the edge")
+        return frame("distance", "Step back a little.", "Part of it is cut off at the edge")
     }
     val area = group.width() * group.height()
-    if (area > Thresholds.TOO_CLOSE_AREA && zoom < 1.5f) return frame("close", "Step back and zoom to 2×.", "Up close, things bend at the edges")
-    if (area < Thresholds.TOO_SMALL_AREA) return frame("small", "Move closer.", "It's small in the frame")
+    if (area > Thresholds.TOO_CLOSE_AREA && zoom < 1.5f) return frame("distance", "Step back and zoom to 2×.", "Up close, things bend at the edges")
+    if (area < Thresholds.TOO_SMALL_AREA) return frame("distance", "Move closer.", "It's small in the frame")
 
     // Where it sits. One thing: move the phone until it lands on its circle. A group: keep its middle near the centre.
     val from: P

@@ -83,7 +83,8 @@ class FrameAnalyzer(private val context: Context, private val onResult: (FrameRe
         return Bitmap.createBitmap(src, 0, 0, src.width, src.height, m, true)
     }
 
-    private class Found(val box: RectF, val name: String, val score: Float)
+    /** name is null when the model isn't sure what it is (it called glass bowls "laptop" and "donut"); the box still counts. */
+    private class Found(val box: RectF, val name: String?, val score: Float)
 
     private fun detect(image: Bitmap): List<Found> {
         val d = detectorOrNull() ?: return emptyList()
@@ -94,7 +95,7 @@ class FrameAnalyzer(private val context: Context, private val onResult: (FrameRe
             if (c.categoryName() in ignored) return@mapNotNull null
             val b = det.boundingBox()
             val box = RectF((b.left / w).coerceIn(0f, 1f), (b.top / h).coerceIn(0f, 1f), (b.right / w).coerceIn(0f, 1f), (b.bottom / h).coerceIn(0f, 1f))
-            if (box.width() * box.height() < 0.01f) null else Found(box, friendly(c.categoryName()), c.score())
+            if (box.width() * box.height() < 0.01f) null else Found(box, friendly(c.categoryName()).takeIf { c.score() >= SURE }, c.score())
         }.sortedByDescending { it.score }
         // One plate can come back as both "bowl" and "pizza": keep only the surer one.
         val kept = mutableListOf<Found>()
@@ -115,7 +116,7 @@ class FrameAnalyzer(private val context: Context, private val onResult: (FrameRe
             while (j < list.size) {
                 val a = list[i]; val b = list[j]
                 if (insideShare(b.box, a.box) > 0.6f) {
-                    list[i] = Found(RectF(a.box).apply { union(b.box) }, a.name, max(a.score, b.score))
+                    list[i] = Found(RectF(a.box).apply { union(b.box) }, a.name ?: b.name, max(a.score, b.score))
                     list.removeAt(j)
                     j = i + 1   // the bigger box grew; check the rest again
                 } else j++
@@ -203,6 +204,9 @@ class FrameAnalyzer(private val context: Context, private val onResult: (FrameRe
 
     private companion object {
         const val TAG = "ComposePro"
+
+        /** Below this confidence the box is kept but not named: wrong is worse than quiet (AX_SPEC). */
+        const val SURE = 0.6f
 
         /** Tips are for things, not people (BRIEF.md); a table is the background, not a thing to arrange. */
         val ignored = setOf("person", "dining table", "bed", "couch")
