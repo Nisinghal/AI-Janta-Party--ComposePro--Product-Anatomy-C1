@@ -69,10 +69,17 @@ object Photographer {
 
     /**
      * Gemini's newer models quietly "think" before answering, which made each answer take 4–18 s (median ~7 s,
-     * phone log 2026-10-06). Two or three photo steps don't need it, so thinking is switched off. If a model
-     * refuses that setting, it's dropped for the rest of the session.
+     * phone log 2026-10-06). Two or three photo steps don't need much, so the lightest setting the model accepts is
+     * used. Models differ in what they accept ("thinkingBudget: 0" was rejected outright with a bare
+     * "invalid argument"), so each option is tried in turn on a 400 and the one that works is kept.
      */
-    @Volatile private var noThinking = true
+    private val THINKING = listOf(
+        JSONObject().put("thinkingLevel", "minimal"),
+        JSONObject().put("thinkingLevel", "low"),
+        JSONObject().put("thinkingBudget", 0),
+        null,
+    )
+    @Volatile private var thinking = 0
     private fun endpoint(model: String) = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"
 
     private val PERSONA = """
@@ -187,7 +194,7 @@ object Photographer {
             .put(
                 "generationConfig",
                 JSONObject().put("responseMimeType", "application/json").put("responseSchema", schema).apply {
-                    if (noThinking) put("thinkingConfig", JSONObject().put("thinkingBudget", 0))
+                    THINKING[thinking]?.let { put("thinkingConfig", it) }
                 },
             )
             .toString()
@@ -202,10 +209,10 @@ object Photographer {
             } catch (e: IOException) {
                 return Reply.Failed("Couldn't reach the photographer. Check your internet and try again.")
             }
-            if (code == 400 && noThinking && "thinking" in reply.lowercase()) {
-                // This model won't turn thinking off: ask again without that setting.
-                Log.w("ComposePro", "Gemini $model refused thinkingBudget 0; retrying with thinking on")
-                noThinking = false
+            // A bare "invalid argument" (not a bad key) means this model won't take the thinking setting: step to the next one.
+            while (code == 400 && "API_KEY_INVALID" !in reply && thinking < THINKING.lastIndex) {
+                thinking++
+                Log.w("ComposePro", "Gemini $model refused a thinking setting; trying ${THINKING[thinking] ?: "none"}")
                 val retry = try { post(model, body()) } catch (e: IOException) { return Reply.Failed("Couldn't reach the photographer. Check your internet and try again.") }
                 code = retry.first; reply = retry.second
             }
@@ -213,7 +220,7 @@ object Photographer {
                 lastGood = model
                 val answer = answerText(reply)
                 val version = try { JSONObject(reply).optString("modelVersion") } catch (e: Exception) { "" }
-                Log.i("ComposePro", "Gemini $model ($version, thinking ${if (noThinking) "off" else "on"}) answered in ${System.currentTimeMillis() - started} ms: ${answer ?: reply.take(400)}")
+                Log.i("ComposePro", "Gemini $model ($version, thinking ${THINKING[thinking] ?: "default"}) answered in ${System.currentTimeMillis() - started} ms: ${answer ?: reply.take(400)}")
                 return answer?.let { Reply.Ok(it) } ?: Reply.Failed("The photographer couldn't answer this time. Try again.")
             }
             Log.w("ComposePro", "Gemini $model error $code after ${System.currentTimeMillis() - started} ms: ${reply.take(200)}")
