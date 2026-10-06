@@ -28,7 +28,7 @@ fun FirstOpenScreen(refused: Boolean, asking: Boolean, onAllow: () -> Unit, onOp
         }
         Column(verticalArrangement = Arrangement.spacedBy(CPSpace.S1)) {
             Text("Compose Pro", style = CPType.Display, color = CP.Ink)
-            Text("Point at anything. You'll get a few steps to a better photo.", style = CPType.Body, color = CP.Ink)
+            Text("Point at anything and follow the steps. Red numbers turn into a green ✓ when you've done them. The shutter always works.", style = CPType.Body, color = CP.Ink)
         }
         Column(verticalArrangement = Arrangement.spacedBy(CPSpace.S2)) {
             if (refused) {

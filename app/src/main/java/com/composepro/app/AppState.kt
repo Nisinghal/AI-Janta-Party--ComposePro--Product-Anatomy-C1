@@ -7,7 +7,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 
-enum class Screen { FirstOpen, Tour, Camera, Review, Gallery, Settings }
+enum class Screen { Splash, FirstOpen, Tour, Camera, Review, Gallery, Settings }
 
 /** A thing the person said the camera got wrong ("Not right?"). */
 data class NotRight(val name: String, val atMillis: Long)
@@ -41,7 +41,7 @@ class Prefs(context: Context) {
 }
 
 class AppState(private val prefs: Prefs) {
-    var screen by mutableStateOf(Screen.FirstOpen)
+    var screen by mutableStateOf(Screen.Splash)
     var tourSeen by mutableStateOf(prefs.tourSeen)
         private set
     var tipsOn by mutableStateOf(prefs.tipsOn)

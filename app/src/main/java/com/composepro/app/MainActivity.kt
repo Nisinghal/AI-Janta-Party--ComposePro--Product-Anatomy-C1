@@ -38,6 +38,7 @@ import com.composepro.app.ui.FirstOpenScreen
 import com.composepro.app.ui.GalleryScreen
 import com.composepro.app.ui.ReviewScreen
 import com.composepro.app.ui.SettingsScreen
+import com.composepro.app.ui.SplashScreen
 import com.composepro.app.ui.TourScreen
 import com.composepro.app.ui.theme.CP
 import com.composepro.app.ui.theme.CPType
@@ -56,7 +57,10 @@ class MainActivity : ComponentActivity() {
 fun AppRoot(state: AppState) {
     val context = LocalContext.current
     fun hasCamera() = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
-    fun afterPermission() { state.screen = if (state.tourSeen) Screen.Camera else Screen.Tour }
+    // The welcome (first-open) screen is the onboarding, shown only until the camera is allowed. Every later launch
+    // goes splash → camera (user request, 2026-10-06). The tour stays available from Settings.
+    fun afterPermission() { state.markTourSeen(); state.screen = Screen.Camera }
+    fun afterSplash() { state.screen = if (hasCamera()) Screen.Camera else Screen.FirstOpen }
 
     var refused by remember { mutableStateOf(false) }
     var asking by remember { mutableStateOf(false) }
@@ -65,7 +69,6 @@ fun AppRoot(state: AppState) {
         if (granted) { refused = false; afterPermission() } else refused = true
     }
 
-    LaunchedEffect(Unit) { if (hasCamera()) afterPermission() }
     // Coming back from the phone's settings after turning the camera on.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         if (state.screen == Screen.FirstOpen && refused && hasCamera()) { refused = false; afterPermission() }
@@ -79,6 +82,7 @@ fun AppRoot(state: AppState) {
         label = "screen",
     ) { screen ->
         when (screen) {
+            Screen.Splash -> SplashScreen(onDone = ::afterSplash)
             Screen.FirstOpen -> FirstOpenScreen(
                 refused = refused,
                 asking = asking,
