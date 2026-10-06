@@ -285,6 +285,10 @@ fun CameraScreen(state: AppState) {
     var subjectBox by remember { mutableStateOf<RectF?>(null) }
     // Follows the photographer's subject by how it looks, for anything the detector has no name for.
     val tracker = remember { Tracker() }
+    // Rough look of the view when the plan arrived (brightness, phone angle) and when its subject was last seen.
+    var planScene by remember { mutableStateOf<List<Int>>(emptyList()) }
+    var planAt by remember { mutableLongStateOf(0L) }
+    var lostSince by remember { mutableLongStateOf(0L) }
     var trackedBox by remember { mutableStateOf<RectF?>(null) }
     val streak = remember { mutableStateMapOf<Int, Int>() }
     val liveOk = remember { mutableStateMapOf<Int, Boolean>() }
@@ -329,6 +333,7 @@ fun CameraScreen(state: AppState) {
                     }
                     streak.clear(); liveOk.clear(); checkError = null
                     val trusted = r.value.moves.map { liveCheck(it, tiltNow, subject) != true }
+                    planScene = coarseScene(frame, tilt); planAt = SystemClock.elapsedRealtime(); lostSince = 0L
                     coach = Coach(r.value, subject?.id, liveTrusted = trusted)
                 }
                 is Reply.Failed -> {
@@ -373,6 +378,8 @@ fun CameraScreen(state: AppState) {
     LaunchedEffect(frame) {
         val c = coach ?: return@LaunchedEffect
         frame?.gray?.let { g -> if (tracker.locked) { tracker.update(g); trackedBox = tracker.box } }
+        val t = SystemClock.elapsedRealtime()
+        if (coachSubject == null) { if (lostSince == 0L) lostSince = t } else lostSince = 0L
         coachSubject?.let { subjectBox = it.box }
         // A step turns done after 2 good frames in a row and back after 3 bad ones, so it doesn't flicker.
         c.advice.moves.forEachIndexed { i, m ->
@@ -425,6 +432,12 @@ fun CameraScreen(state: AppState) {
             val firstAsk = askedFor != scanStart && now - scanStart >= 800
             val retry = askError != null && now - lastReqAt > 30_000
             if (firstAsk || retry) { askedFor = scanStart; askPhotographer() }
+            return@LaunchedEffect
+        }
+        // Pointed somewhere else (subject gone 3 s and the view clearly brighter/darker or at another angle):
+        // that plan was for another scene, e.g. one made while the phone lay face-down. Get a fresh one.
+        if (lostSince != 0L && now - lostSince > 3_000 && now - planAt > 6_000 && coarseScene(frame, tilt) != planScene) {
+            closeCoach(); askedFor = -1L
             return@LaunchedEffect
         }
         if (allDone) return@LaunchedEffect
@@ -551,3 +564,7 @@ fun GlassToast(text: String, modifier: Modifier = Modifier) {
 private fun darkOnly(frame: FrameResult?): TipDecision =
     if (frame != null && frame.meanY < Thresholds.TOO_DARK) TipDecision("dark", TipKind.Note, "Too dark for me to see. Try more light, or just shoot.")
     else TipDecision.NONE
+
+/** Brightness and phone angle in coarse steps: changes only when the person points somewhere clearly different. */
+private fun coarseScene(frame: FrameResult?, tilt: Tilt): List<Int> =
+    listOf(((frame?.meanY ?: 0f) / 30).toInt(), (tilt.offFlatDeg / 25).toInt())
