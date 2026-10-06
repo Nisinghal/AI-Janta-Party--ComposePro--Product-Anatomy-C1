@@ -490,6 +490,9 @@ fun CameraScreen(state: AppState) {
         cam.cameraControl.setZoomRatio(zoom)
         zoomShownAt = SystemClock.elapsedRealtime()
     }
+    // Flash for the photo: Auto → On → Off, like the phone's own camera (user request, 2026-10-06).
+    var flashSetting by remember { mutableStateOf(FlashSetting.Auto) }
+    LaunchedEffect(flashSetting) { imageCapture.flashMode = flashSetting.captureMode }
     var focusAt by remember { mutableStateOf<Offset?>(null) }
     var focusShownAt by remember { mutableLongStateOf(0L) }
     fun focus(at: Offset) {
@@ -545,6 +548,9 @@ fun CameraScreen(state: AppState) {
             GuideChip(pick, guideVisible && !explaining && !photographerOn, ::lookAgain, Modifier.align(Alignment.BottomCenter).padding(bottom = CPSpace.S2))
             ZoomChip(zoom, now - zoomShownAt < 900, Modifier.align(Alignment.Center))
             FocusRing(focusAt, now - focusShownAt < 1200)
+            if (camera?.cameraInfo?.hasFlashUnit() == true) {
+                FlashButton(flashSetting, onClick = { flashSetting = flashSetting.next() }, modifier = Modifier.align(Alignment.BottomStart).padding(start = CPSpace.S2, bottom = CPSpace.S2))
+            }
             ZoomButtons(
                 zoom = zoom, maxZoom = camera?.cameraInfo?.zoomState?.value?.maxZoomRatio ?: 1f,
                 onZoom = ::setZoom, modifier = Modifier.align(Alignment.BottomEnd).padding(end = CPSpace.S2, bottom = CPSpace.S2),

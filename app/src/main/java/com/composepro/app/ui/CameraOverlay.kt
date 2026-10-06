@@ -341,10 +341,47 @@ fun ZoomButtons(zoom: Float, maxZoom: Float, onZoom: (Float) -> Unit, modifier: 
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    if (on || zoom < 1.05f || z != 1f) "${z.toInt()}×" else String.format("%.1f×", zoom),
+                    "${z.toInt()}×",
                     style = CPType.CaptionMedium, color = if (on) CP.Ink else CP.OnDark,
                 )
             }
         }
+    }
+}
+
+/** Flash for the photo, cycled by one button. */
+enum class FlashSetting(val label: String, val captureMode: Int) {
+    Auto("Auto", androidx.camera.core.ImageCapture.FLASH_MODE_AUTO),
+    On("On", androidx.camera.core.ImageCapture.FLASH_MODE_ON),
+    Off("Off", androidx.camera.core.ImageCapture.FLASH_MODE_OFF);
+
+    fun next() = entries[(ordinal + 1) % entries.size]
+}
+
+/** Lightning bolt + "Auto/On/Off" in a glass pill; the bolt is crossed out when off and yellow when on. */
+@Composable
+fun FlashButton(setting: FlashSetting, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier.clip(CPShape.Pill).background(CP.Glass)
+            .clickable(role = Role.Button, onClickLabel = "Change flash", onClick = onClick)
+            .semantics { contentDescription = "Flash ${setting.label}" }
+            .padding(start = 10.dp, end = 14.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        val boltColor = if (setting == FlashSetting.On) Color(0xFFFFD54F) else CP.OnDark
+        Canvas(Modifier.size(18.dp)) {
+            val w = size.width; val h = size.height
+            val bolt = Path().apply {
+                moveTo(w * 0.58f, 0f); lineTo(w * 0.12f, h * 0.58f); lineTo(w * 0.46f, h * 0.58f)
+                lineTo(w * 0.36f, h); lineTo(w * 0.88f, h * 0.38f); lineTo(w * 0.54f, h * 0.38f); close()
+            }
+            drawPath(bolt, boltColor)
+            if (setting == FlashSetting.Off) {
+                drawLine(CP.Glass, Offset(0f, 0f), Offset(w, h), 4f * density)
+                drawLine(CP.OnDark, Offset(w * 0.05f, h * 0.05f), Offset(w * 0.95f, h * 0.95f), 1.8f * density)
+            }
+        }
+        Text(setting.label, style = CPType.CaptionMedium, color = CP.OnDark)
     }
 }
