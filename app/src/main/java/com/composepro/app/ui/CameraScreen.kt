@@ -67,7 +67,12 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.composepro.app.AppState
 import com.composepro.app.PendingPhoto
 import com.composepro.app.Screen
-import com.composepro.app.ai.AskResult
+import com.composepro.app.ai.CheckBy
+import com.composepro.app.ai.Coach
+import com.composepro.app.ai.Reply
+import com.composepro.app.ai.liveCheck
+import com.composepro.app.ai.matchSubject
+import android.graphics.RectF
 import com.composepro.app.ai.Photographer
 import com.composepro.app.camera.Tilt
 import com.composepro.app.camera.FrameAnalyzer
@@ -262,29 +267,91 @@ fun CameraScreen(state: AppState) {
         )
     }
 
-    // ---- Ask photographer: one frame to Gemini, only when tapped ----
-    var asking by remember { mutableStateOf(false) }
-    var advice by remember { mutableStateOf<AskResult?>(null) }
-    fun askPhotographer() {
-        if (asking) return
-        val bmp = previewView.bitmap ?: run { toast = "The camera isn't ready yet."; return }
+    // ---- Ask photographer: one frame to Gemini, only when tapped. While its plan is up, live tips hide
+    // (one voice at a time) and each step ticks itself when the phone can measure it (user feedback 2026-10-06). ----
+    var busy by remember { mutableStateOf(false) }
+    var coach by remember { mutableStateOf<Coach?>(null) }
+    var askError by remember { mutableStateOf<String?>(null) }
+    var checkError by remember { mutableStateOf<String?>(null) }
+    var subjectBox by remember { mutableStateOf<RectF?>(null) }
+    val streak = remember { mutableStateMapOf<Int, Int>() }
+    val liveOk = remember { mutableStateMapOf<Int, Boolean>() }
+
+    fun phoneContext(): String {
         val held = when {
             tilt == Tilt.Unknown -> "unknown"
             tilt.flat -> "pointing straight down at a table"
             tilt.offFlatDeg < 60f -> "tilted down, about ${tilt.offFlatDeg.toInt()}° from pointing straight down"
             else -> "upright, at about eye level"
         }
-        val context = "How the phone is held: $held. Zoom: ${String.format(java.util.Locale.US, "%.1f", zoom)}×. " +
-            "The phone's own detector thinks it sees: ${if (things.isEmpty()) "nothing it recognises" else describe(things)} (it can be wrong). " +
-            "What should this person do to take a better photo of this?"
-        asking = true
-        advice = null
+        return "How the phone is held: $held. Zoom: ${String.format(java.util.Locale.US, "%.1f", zoom)}×. " +
+            "The phone's own detector thinks it sees: ${if (things.isEmpty()) "nothing it recognises" else describe(things)} (it can be wrong)."
+    }
+
+    fun askPhotographer() {
+        if (busy) return
+        val bmp = previewView.bitmap ?: run { toast = "The camera isn't ready yet."; return }
+        val seenNow = things
+        val ctx = phoneContext() + " What should this person do to take a better photo of this?"
+        busy = true
+        askError = null
         scope.launch {
-            val result = withContext(Dispatchers.IO) { Photographer.ask(bmp, context) }
-            asking = false
-            advice = result
+            val r = withContext(Dispatchers.IO) { Photographer.ask(bmp, ctx) }
+            busy = false
+            when (r) {
+                is Reply.Ok -> {
+                    val subject = matchSubject(r.value.subjectBox, seenNow)
+                    subjectBox = subject?.box ?: r.value.subjectBox
+                    streak.clear(); liveOk.clear(); checkError = null
+                    coach = Coach(r.value, subject?.id)
+                }
+                is Reply.Failed -> askError = r.message
+            }
         }
     }
+
+    fun checkShot() {
+        val c = coach ?: return
+        if (busy) return
+        val bmp = previewView.bitmap ?: run { toast = "The camera isn't ready yet."; return }
+        val ctx = phoneContext()
+        busy = true
+        checkError = null
+        scope.launch {
+            val r = withContext(Dispatchers.IO) { Photographer.check(bmp, c.advice, ctx) }
+            busy = false
+            when (r) {
+                is Reply.Ok -> coach = coach?.copy(checked = r.value.done, notes = r.value.notes, next = r.value.next, ready = r.value.ready)
+                is Reply.Failed -> checkError = r.message
+            }
+        }
+    }
+
+    fun closeCoach() { coach = null; checkError = null; streak.clear(); liveOk.clear() }
+
+    // The photographer's subject, followed live: the same tracked thing, or whatever overlaps its last place most.
+    val coachSubject = coach?.let { c -> things.firstOrNull { it.id != null && it.id == c.subjectId } ?: subjectBox?.let { matchSubject(it, things) } }
+    LaunchedEffect(frame) {
+        val c = coach ?: return@LaunchedEffect
+        coachSubject?.let { subjectBox = it.box }
+        // A step turns done after 2 good frames in a row and back after 3 bad ones, so it doesn't flicker.
+        c.advice.moves.forEachIndexed { i, m ->
+            val ok = liveCheck(m, tilt, coachSubject) ?: return@forEachIndexed
+            val prev = streak[i] ?: 0
+            val next = if (ok) (if (prev > 0) prev + 1 else 1) else (if (prev < 0) prev - 1 else -1)
+            streak[i] = next
+            if (next >= 2) liveOk[i] = true else if (next <= -3) liveOk[i] = false
+        }
+    }
+    val steps = coach?.let { c ->
+        c.advice.moves.mapIndexed { i, m ->
+            val live = when (m.check) { CheckBy.Angle -> tilt != Tilt.Unknown; CheckBy.Frame -> coachSubject != null; CheckBy.Other -> false }
+            StepView(m, done = if (live) liveOk[i] == true else c.checked.getOrElse(i) { false }, live = live, note = c.notes.getOrElse(i) { "" })
+        }
+    }.orEmpty()
+    val ringStep = steps.indexOfFirst { !it.done && it.live && it.move.check == CheckBy.Frame }
+    val ringMove = steps.getOrNull(ringStep)?.move
+    val photographerOn = coach != null || busy || askError != null
 
     fun notRight() {
         val main = shown.main
@@ -317,26 +384,32 @@ fun CameraScreen(state: AppState) {
         Box(Modifier.fillMaxWidth().aspectRatio(3f / 4f).clip(CPShape.Sheet).then(gestures)) {
             AndroidView({ previewView }, Modifier.fillMaxSize())
             GridLayer(state.tipsOn && !dark, Modifier.fillMaxSize())
-            ThingsLayer(if (pick != null) things.take(slots) else things, marksVisible, Modifier.fillMaxSize())
-            GuideLayer(guide, slots, guideAlignment, points, guideVisible, Modifier.fillMaxSize())
-            EdgeLayer(shown.main, shown.edge, Modifier.fillMaxSize())
-            if (advice == null) TipCapsule(shown, ::notRight, Modifier.align(Alignment.TopCenter).padding(top = CPSpace.S2, start = CPSpace.S3, end = CPSpace.S3))
+            ThingsLayer(if (pick != null) things.take(slots) else things, marksVisible && !photographerOn, Modifier.fillMaxSize())
+            GuideLayer(guide, slots, guideAlignment, points, guideVisible && !photographerOn, Modifier.fillMaxSize())
+            if (!photographerOn) EdgeLayer(shown.main, shown.edge, Modifier.fillMaxSize())
+            CoachLayer(
+                target = ringMove?.let { P(it.targetX ?: 0.5f, it.targetY ?: 0.5f) },
+                subject = coachSubject?.let { P(it.cx, it.cy) },
+                hit = ringStep >= 0 && liveOk[ringStep] == true,
+                modifier = Modifier.fillMaxSize(),
+            )
+            if (!photographerOn) TipCapsule(shown, ::notRight, Modifier.align(Alignment.TopCenter).padding(top = CPSpace.S2, start = CPSpace.S3, end = CPSpace.S3))
             NoteChip(if (dark) shown.phone else null, Modifier.align(Alignment.TopCenter).padding(top = CPSpace.S2))
             val top = Modifier.align(Alignment.TopCenter).padding(top = CPSpace.S2, start = CPSpace.S3, end = CPSpace.S3)
             InfoCapsule(
-                visible = scanning && !dark,
+                visible = scanning && !dark && !photographerOn,
                 line1 = if (count == 0 && now - scanStart > 1500) "Point at what you want to shoot." else "Looking at what's here…",
                 line2 = if (count == 0) "I'll mark everything I recognise." else "Hold still. Found ${describe(things)} so far.",
                 progress = scanProgress,
                 modifier = top,
             )
             InfoCapsule(
-                visible = explaining && !dark,
+                visible = explaining && !dark && !photographerOn,
                 line1 = pick?.let { "I see ${it.seen}. Let's use ${it.guide.label}." } ?: "",
                 line2 = pick?.why ?: "",
                 modifier = top,
             )
-            GuideChip(pick, guideVisible && !explaining && advice == null && !asking, ::lookAgain, Modifier.align(Alignment.BottomCenter).padding(bottom = CPSpace.S2))
+            GuideChip(pick, guideVisible && !explaining && !photographerOn, ::lookAgain, Modifier.align(Alignment.BottomCenter).padding(bottom = CPSpace.S2))
             ZoomChip(zoom, now - zoomShownAt < 900, Modifier.align(Alignment.Center))
             Box(Modifier.fillMaxSize().alpha(flash.value).background(CP.OnDark))
             Box(Modifier.fillMaxSize().alpha(cover.value).background(CP.CameraBar))
@@ -345,12 +418,28 @@ fun CameraScreen(state: AppState) {
                     Text("Camera isn't available right now. Close other apps using it and try again.", style = CPType.Body, color = CP.OnDark, textAlign = TextAlign.Center)
                 }
             }
-            AdviceCard(advice, asking, onClose = { advice = null }, onRetry = ::askPhotographer, modifier = Modifier.align(Alignment.BottomCenter).padding(CPSpace.S2))
+            coach?.let { c ->
+                CoachCard(
+                    seen = c.advice.seen, steps = steps, next = c.next, ready = c.ready, error = checkError,
+                    onClose = ::closeCoach, modifier = Modifier.align(Alignment.BottomCenter).padding(CPSpace.S2),
+                )
+            }
+            AskErrorCard(askError, onRetry = ::askPhotographer, onClose = { askError = null }, modifier = Modifier.align(Alignment.BottomCenter).padding(CPSpace.S2))
             toast?.let { GlassToast(it, Modifier.align(Alignment.BottomCenter).padding(bottom = CPSpace.S3)) }
         }
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
           Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            AskButton(asking, enabled = !unavailable, onClick = ::askPhotographer, modifier = Modifier.padding(bottom = CPSpace.S3))
+            AskButton(
+                label = when {
+                    busy && coach == null -> "Looking like a photographer…"
+                    busy -> "Checking your shot…"
+                    coach == null -> "Ask photographer"
+                    else -> "Check my shot"
+                },
+                busy = busy, enabled = !unavailable,
+                onClick = { if (coach == null) askPhotographer() else checkShot() },
+                modifier = Modifier.padding(bottom = CPSpace.S3),
+            )
             Row(Modifier.fillMaxWidth().padding(horizontal = CPSpace.S4), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     Modifier.size(CPSpace.Tap).clip(CPShape.Thumb).border(2.dp, CP.OnDark.copy(alpha = 0.85f), CPShape.Thumb)
