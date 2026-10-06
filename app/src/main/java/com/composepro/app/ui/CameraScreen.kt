@@ -332,7 +332,7 @@ fun CameraScreen(state: AppState) {
                         trackedBox = if (ok) tracker.box else null
                     }
                     streak.clear(); liveOk.clear(); checkError = null
-                    val trusted = r.value.moves.map { liveCheck(it, tiltNow, subject) != true }
+                    val trusted = r.value.moves.map { it.check != CheckBy.Angle || liveCheck(it, tiltNow, subject) != true }
                     planScene = coarseScene(frame, tilt); planAt = SystemClock.elapsedRealtime(); lostSince = 0L
                     coach = Coach(r.value, subject?.id, liveTrusted = trusted)
                 }
@@ -489,7 +489,9 @@ fun CameraScreen(state: AppState) {
                 target = ringMove?.let { P(it.targetX ?: 0.5f, it.targetY ?: 0.5f) },
                 subject = coachSubject?.let { P(it.cx, it.cy) },
                 subjectBox = if (ringMove != null) coachSubject?.box else null,
-                hit = ringStep >= 0 && liveOk[ringStep] == true,
+                targetSize = ringMove?.size,
+                // The ring goes green exactly when its step does, so the two never disagree.
+                hit = steps.getOrNull(ringStep)?.done == true,
                 modifier = Modifier.fillMaxSize(),
             )
             if (!photographerOn) TipCapsule(shown, ::notRight, Modifier.align(Alignment.TopCenter).padding(top = CPSpace.S2, start = CPSpace.S3, end = CPSpace.S3))

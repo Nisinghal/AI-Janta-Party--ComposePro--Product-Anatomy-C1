@@ -124,8 +124,11 @@ private fun StepRow(index: Int, s: StepView) {
                 else -> s.move.why
             }
             Text(sub, style = CPType.Caption, color = CP.OnDark.copy(alpha = 0.75f))
-            if (!s.done && s.live && s.move.check == CheckBy.Frame) {
-                Text("Move the phone until the dot is inside the circle.", style = CPType.CaptionMedium, color = CP.OnDark)
+            if (!s.done && s.move.check == CheckBy.Frame) {
+                Text(
+                    if (s.move.size != null) "Move until the outline fills the white box." else "Move the phone until the dot is inside the circle.",
+                    style = CPType.CaptionMedium, color = CP.OnDark,
+                )
             }
         }
     }
@@ -133,7 +136,7 @@ private fun StepRow(index: Int, s: StepView) {
 
 /** When the first open step is about where the subject sits: a ring where it should go, a dot on it now, an arrow between. */
 @Composable
-fun CoachLayer(target: P?, subject: P?, subjectBox: RectF?, hit: Boolean, modifier: Modifier = Modifier) {
+fun CoachLayer(target: P?, subject: P?, subjectBox: RectF?, targetSize: Float?, hit: Boolean, modifier: Modifier = Modifier) {
     val a by animateFloatAsState(if (target != null) 1f else 0f, tween(250), label = "coachAlpha")
     Canvas(modifier.alpha(a)) {
         val t = target ?: return@Canvas
@@ -152,6 +155,17 @@ fun CoachLayer(target: P?, subject: P?, subjectBox: RectF?, hit: Boolean, modifi
             drawRoundRect(
                 CP.OnDark.copy(alpha = 0.6f), Offset(b.left * w, b.top * h), Size(b.width() * w, b.height() * h),
                 CornerRadius(14f * density), style = Stroke(2f * density, pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f * density, 6f * density))),
+            )
+        }
+        // When the step is about size too: a white box at the spot, as big as the subject should be
+        // (its height from the photographer, its width keeping the subject's own shape).
+        if (targetSize != null) {
+            val bh = targetSize * h
+            val aspect = subjectBox?.let { (it.width() * w) / (it.height() * h).coerceAtLeast(1f) } ?: 1f
+            val bw = (bh * aspect).coerceAtMost(w * 0.98f)
+            drawRoundRect(
+                CP.OnDark, Offset(to.x - bw / 2, to.y - bh / 2), Size(bw, bh), CornerRadius(16f * density),
+                style = Stroke(3f * density),
             )
         }
         drawCircle(CP.Glass, ring, to)

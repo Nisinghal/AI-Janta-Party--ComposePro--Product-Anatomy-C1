@@ -30,7 +30,7 @@ data class Coach(
 
 /** How close (fraction of the frame) the subject's centre must be to the ring, and how close its size must be. */
 private const val SPOT = 0.08f
-private const val SIZE_SLACK = 0.3f
+private const val SIZE_SLACK = 0.15f
 
 /**
  * Is this move satisfied right now, judged by the phone itself? Null when the phone can't tell
@@ -46,7 +46,8 @@ fun liveCheck(move: Move, tilt: Tilt, subject: Thing?): Boolean? = when (move.ch
     CheckBy.Frame -> subject?.let { s ->
         val onSpot = hypot(s.cx - (move.targetX ?: s.cx), s.cy - (move.targetY ?: s.cy)) < SPOT
         val size = move.size
-        val sized = size == null || abs(s.box.height() - size) <= size * SIZE_SLACK + 0.05f
+        // Within ~15% of the asked-for height (was 30% + 0.05: a laptop at 60% passed for 85%, phone test 2026-10-06).
+        val sized = size == null || abs(s.box.height() - size) <= size * SIZE_SLACK + 0.02f
         onSpot && sized
     }
     CheckBy.Other -> null
