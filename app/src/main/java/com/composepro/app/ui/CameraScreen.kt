@@ -331,6 +331,11 @@ fun CameraScreen(state: AppState) {
                         val ok = withContext(Dispatchers.Default) { tracker.start(grayAtAsk, b, nowGray) }
                         trackedBox = if (ok) tracker.box else null
                     }
+                    android.util.Log.i(
+                        "ComposePro",
+                        "Subject: photographer box=$b, detector=${subject?.category}#${subject?.id} ${subject?.box}, " +
+                            "tracker=${if (trackedBox != null) "found at $trackedBox" else "lost"} (match ${"%.2f".format(tracker.lastScore)}), phone saw ${seenNow.map { "${it.category}${it.box}" }}",
+                    )
                     streak.clear(); liveOk.clear(); checkError = null
                     val trusted = r.value.moves.map { it.check != CheckBy.Angle || liveCheck(it, tiltNow, subject) != true }
                     planScene = coarseScene(frame, tilt); planAt = SystemClock.elapsedRealtime(); lostSince = 0L
@@ -377,7 +382,12 @@ fun CameraScreen(state: AppState) {
     }
     LaunchedEffect(frame) {
         val c = coach ?: return@LaunchedEffect
-        frame?.gray?.let { g -> if (tracker.locked) { tracker.update(g); trackedBox = tracker.box } }
+        frame?.gray?.let { g ->
+            if (tracker.locked) {
+                tracker.update(g); trackedBox = tracker.box
+                if (!tracker.locked) android.util.Log.i("ComposePro", "Tracker lost the subject (match ${"%.2f".format(tracker.lastScore)})")
+            }
+        }
         val t = SystemClock.elapsedRealtime()
         if (coachSubject == null) { if (lostSince == 0L) lostSince = t } else lostSince = 0L
         coachSubject?.let { subjectBox = it.box }
@@ -519,19 +529,19 @@ fun CameraScreen(state: AppState) {
                     Text("Camera isn't available right now. Close other apps using it and try again.", style = CPType.Body, color = CP.OnDark, textAlign = TextAlign.Center)
                 }
             }
-            // One card, one place: "Finding the best shot…" while it works, then the steps.
-            val bottom = Modifier.align(Alignment.BottomCenter).padding(CPSpace.S2)
-            if (coach == null && photographerOn) FindingCard(bottom)
-            coach?.let { c ->
-                CoachCard(
-                    steps = steps, next = c.next, ready = allDone, checking = busy, error = checkError,
-                    onClose = { closeCoach(); closedFor = scanStart }, modifier = bottom,
-                )
-            }
             toast?.let { GlassToast(it, Modifier.align(Alignment.BottomCenter).padding(bottom = CPSpace.S3)) }
         }
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
           Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            // One card, one place, under the camera view: "Finding the best shot…", then one step at a time.
+            val cardSpot = Modifier.padding(start = CPSpace.S2, end = CPSpace.S2, bottom = CPSpace.S3)
+            if (coach == null && photographerOn) FindingCard(cardSpot)
+            coach?.let {
+                CoachCard(
+                    steps = steps, ready = allDone, checking = busy, error = checkError,
+                    onClose = { closeCoach(); closedFor = scanStart }, modifier = cardSpot,
+                )
+            }
             Row(Modifier.fillMaxWidth().padding(horizontal = CPSpace.S4), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     Modifier.size(CPSpace.Tap).clip(CPShape.Thumb).border(2.dp, CP.OnDark.copy(alpha = 0.85f), CPShape.Thumb)

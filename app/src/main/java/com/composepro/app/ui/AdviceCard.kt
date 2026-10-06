@@ -54,41 +54,49 @@ data class StepView(val move: Move, val done: Boolean, val live: Boolean, val no
  * when the photographer looks again after the person changes something (user decision, 2026-10-06).
  */
 @Composable
-fun CoachCard(steps: List<StepView>, next: String?, ready: Boolean, checking: Boolean, error: String?, onClose: () -> Unit, modifier: Modifier = Modifier) {
-    val doneCount = steps.count { it.done }
-    val allDone = ready || (steps.isNotEmpty() && doneCount == steps.size)
+fun CoachCard(steps: List<StepView>, ready: Boolean, checking: Boolean, error: String?, onClose: () -> Unit, modifier: Modifier = Modifier) {
+    // One step at a time, under the camera view, so the view itself only carries the ring, box and dot
+    // (the full list over the view hid the white box; phone test 2026-10-06).
+    val allDone = ready || (steps.isNotEmpty() && steps.all { it.done })
+    val current = steps.indexOfFirst { !it.done }
     Column(
-        modifier.widthIn(max = 380.dp).fillMaxWidth().clip(CPShape.Card).background(CP.Glass.copy(alpha = 0.88f))
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier.widthIn(max = 420.dp).fillMaxWidth().clip(CPShape.Card).background(CP.Glass)
+            .padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                if (steps.isEmpty()) "Better shot" else "Better shot · $doneCount of ${steps.size} done",
-                style = CPType.CaptionMedium, color = CP.OnDark.copy(alpha = 0.75f), modifier = Modifier.weight(1f),
-            )
-            if (checking) {
-                CircularProgressIndicator(Modifier.size(12.dp), color = CP.OnDark.copy(alpha = 0.7f), strokeWidth = 1.5.dp)
-                Text("Checking", style = CPType.Caption, color = CP.OnDark.copy(alpha = 0.7f), modifier = Modifier.padding(start = 6.dp, end = 4.dp))
+            steps.forEachIndexed { i, s ->
+                Box(
+                    Modifier.padding(end = 4.dp).size(18.dp).clip(CPShape.Pill)
+                        .background(if (s.done) CP.Right else if (i == current) CP.Off else CP.Off.copy(alpha = 0.45f)),
+                    contentAlignment = Alignment.Center,
+                ) { Text(if (s.done) "✓" else "${i + 1}", style = CPType.Caption, color = CP.OnDark) }
             }
+            Text(
+                if (allDone || current < 0) "All done" else "Step ${current + 1} of ${steps.size}",
+                style = CPType.CaptionMedium, color = CP.OnDark.copy(alpha = 0.75f),
+                modifier = Modifier.weight(1f).padding(start = 6.dp),
+            )
+            if (checking) CircularProgressIndicator(Modifier.size(12.dp), color = CP.OnDark.copy(alpha = 0.7f), strokeWidth = 1.5.dp)
             Box(
-                Modifier.size(32.dp).clip(CPShape.Pill).clickable(role = Role.Button, onClick = onClose)
-                    .semantics { contentDescription = "Close the photographer" },
+                Modifier.size(36.dp).clip(CPShape.Pill).clickable(role = Role.Button, onClick = onClose)
+                    .semantics { contentDescription = "Close the steps" },
                 contentAlignment = Alignment.Center,
             ) { Text("✕", style = CPType.BodyMedium, color = CP.OnDark) }
         }
-        steps.forEachIndexed { i, s -> StepRow(i, s) }
-        val footer = when {
-            allDone -> "✓ All done. Take the photo."
-            next != null && next.isNotBlank() -> next
-            else -> null
+        if (allDone || current < 0) {
+            Text("✓ All done. Take the photo.", style = CPType.BodyStrong, color = CP.Right)
+        } else {
+            val s = steps[current]
+            Text(s.move.action, style = CPType.BodyStrong, color = CP.OnDark, maxLines = 2)
+            val hint = when {
+                s.move.check == CheckBy.Frame && s.move.size != null -> "Move until the outline fills the white box."
+                s.move.check == CheckBy.Frame -> "Move the phone until the dot is inside the circle."
+                s.note.isNotBlank() && !s.note.equals("Done", ignoreCase = true) -> s.note
+                else -> s.move.why
+            }
+            Text(hint, style = CPType.Caption, color = CP.OnDark.copy(alpha = 0.8f), maxLines = 2, modifier = Modifier.padding(top = 2.dp))
         }
-        footer?.let {
-            Text(
-                it, style = CPType.BodyStrong, color = if (allDone) CP.Right else CP.OnDark,
-                modifier = Modifier.padding(top = CPSpace.S2),
-            )
-        }
-        error?.let { Text(it, style = CPType.Caption, color = CP.OnDark.copy(alpha = 0.85f), modifier = Modifier.padding(top = CPSpace.S1)) }
+        error?.let { Text(it, style = CPType.Caption, color = CP.OnDark.copy(alpha = 0.85f), modifier = Modifier.padding(top = 4.dp)) }
     }
 }
 
@@ -96,7 +104,7 @@ fun CoachCard(steps: List<StepView>, next: String?, ready: Boolean, checking: Bo
 @Composable
 fun FindingCard(modifier: Modifier = Modifier) {
     Row(
-        modifier.widthIn(max = 380.dp).fillMaxWidth().clip(CPShape.Card).background(CP.Glass.copy(alpha = 0.88f))
+        modifier.widthIn(max = 420.dp).fillMaxWidth().clip(CPShape.Card).background(CP.Glass)
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -104,32 +112,6 @@ fun FindingCard(modifier: Modifier = Modifier) {
         Column(Modifier.padding(start = 12.dp)) {
             Text("Finding the best shot…", style = CPType.BodyStrong, color = CP.OnDark)
             Text("Hold the phone still for a second.", style = CPType.Caption, color = CP.OnDark.copy(alpha = 0.75f))
-        }
-    }
-}
-
-@Composable
-private fun StepRow(index: Int, s: StepView) {
-    Row(Modifier.padding(top = CPSpace.S1), verticalAlignment = Alignment.Top) {
-        // Red number = still to do; green ✓ = done.
-        Box(
-            Modifier.padding(top = 2.dp).size(22.dp).clip(CPShape.Pill).background(if (s.done) CP.Right else CP.Off),
-            contentAlignment = Alignment.Center,
-        ) { Text(if (s.done) "✓" else "${index + 1}", style = CPType.CaptionMedium, color = CP.OnDark) }
-        Column(Modifier.padding(start = 10.dp)) {
-            Text(s.move.action, style = CPType.BodyStrong, color = CP.OnDark.copy(alpha = if (s.done) 0.6f else 1f))
-            val sub = when {
-                s.done -> s.move.why
-                s.note.isNotBlank() && !s.note.equals("Done", ignoreCase = true) -> s.note
-                else -> s.move.why
-            }
-            Text(sub, style = CPType.Caption, color = CP.OnDark.copy(alpha = 0.75f))
-            if (!s.done && s.move.check == CheckBy.Frame) {
-                Text(
-                    if (s.move.size != null) "Move until the outline fills the white box." else "Move the phone until the dot is inside the circle.",
-                    style = CPType.CaptionMedium, color = CP.OnDark,
-                )
-            }
         }
     }
 }

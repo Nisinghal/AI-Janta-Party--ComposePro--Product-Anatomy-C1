@@ -30,6 +30,10 @@ class Tracker {
     var locked = false
         private set
 
+    /** How well the last search matched (−1..1); kept for the log, to see why tracking holds or drops. */
+    var lastScore = 0f
+        private set
+
     /** Where the subject is now, as fractions of the frame, or null if it's been lost. */
     val box: RectF?
         get() = if (!locked) null else RectF((cx - bw / 2) / w, (cy - bh / 2) / h, (cx + bw / 2) / w, (cy + bh / 2) / h)
@@ -46,8 +50,9 @@ class Tracker {
         tpl = sample(then, cx, cy, bw, bh) ?: return false.also { locked = false }
         locked = true
         // The answer arrives seconds after the frame was taken, so first look for it across the whole frame.
-        val coarse = best(now, 0f, 0f, step = 3, radiusX = w, radiusY = h, scales = floatArrayOf(0.8f, 1f, 1.25f), wholeFrame = true)
-        if (coarse == null || coarse.score < MIN_SCORE) { locked = false; return false }
+        val coarse = best(now, 0f, 0f, step = 3, radiusX = w, radiusY = h, scales = floatArrayOf(0.6f, 0.75f, 0.9f, 1f, 1.15f, 1.35f, 1.6f), wholeFrame = true)
+        lastScore = coarse?.score ?: -1f
+        if (coarse == null || coarse.score < START_SCORE) { locked = false; return false }
         apply(coarse)
         best(now, cx, cy, step = 1, radiusX = 3, radiusY = 3, scales = floatArrayOf(1f))?.let { if (it.score >= MIN_SCORE) apply(it) }
         return true
@@ -57,6 +62,7 @@ class Tracker {
     fun update(now: Gray) {
         if (!locked || tpl.isEmpty()) return
         val m = best(now, cx, cy, step = 1, radiusX = 10, radiusY = 10, scales = floatArrayOf(0.92f, 1f, 1.08f))
+        lastScore = m?.score ?: -1f
         if (m == null || m.score < MIN_SCORE) {
             // One more try further out, in case the phone moved quickly.
             val wide = best(now, cx, cy, step = 2, radiusX = 28, radiusY = 28, scales = floatArrayOf(1f))
@@ -112,7 +118,11 @@ class Tracker {
         return s
     }
 
-    private companion object { const val MIN_SCORE = 0.55f }
+    private companion object {
+        const val MIN_SCORE = 0.55f
+        /** A little lower for the first find, which crosses a few seconds and possibly a step closer or back. */
+        const val START_SCORE = 0.45f
+    }
 }
 
 /** Builds a [Gray] of [outW]×[outH] from a camera Y plane, turned upright by [rotation] (same turn as the detector's image). */
