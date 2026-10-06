@@ -140,11 +140,13 @@ object Photographer {
         For each move say how it can be checked:
         - check "angle" if the move is only about the phone's height or tilt; set angle to "above" (phone flat, looking
           straight down), "diner" (tilted, like sitting at a table) or "eye" (phone upright at the subject's height).
-        - check "frame" if the move is about where the subject sits in the picture or how big it is; set target_x and
-          target_y to where the centre of the subject should end up (0 = left/top, 1 = right/bottom) and size to how
-          much of the picture's height it should fill (0 to 1).
+        - check "frame" if the move is about where the subject sits in the picture or how big it is (centre it, put it
+          on the left, higher, lower, closer, fill the picture, "lower the phone so it's in the middle"...). This is
+          required for any such move, even if it also mentions the phone. Set target_x and target_y to where the centre
+          of the subject should end up (0 = left/top, 1 = right/bottom; the centre is 0.5, 0.5) and size to how much of
+          the picture's height it should fill (0 to 1). The person sees a circle at that spot and a dot on the subject.
         - check "other" for everything else (light, background, moving or removing things).
-        Also give subject_box: where the subject is now, as [ymin, xmin, ymax, xmax] from 0 to 1000.
+        Always give subject_box: where the subject is now, as [ymin, xmin, ymax, xmax] from 0 to 1000, tight around it.
         If the frame is already good, say so, set ready to true and give no moves.
     """.trimIndent()
 

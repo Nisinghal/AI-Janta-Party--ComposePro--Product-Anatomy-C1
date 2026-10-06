@@ -79,6 +79,7 @@ import com.composepro.app.camera.Tilt
 import com.composepro.app.camera.FrameAnalyzer
 import com.composepro.app.camera.FrameResult
 import com.composepro.app.camera.Thing
+import com.composepro.app.camera.Tracker
 import com.composepro.app.camera.Thresholds
 import com.composepro.app.camera.TipDecision
 import com.composepro.app.camera.TipKind
@@ -282,6 +283,9 @@ fun CameraScreen(state: AppState) {
     var askError by remember { mutableStateOf<String?>(null) }
     var checkError by remember { mutableStateOf<String?>(null) }
     var subjectBox by remember { mutableStateOf<RectF?>(null) }
+    // Follows the photographer's subject by how it looks, for anything the detector has no name for.
+    val tracker = remember { Tracker() }
+    var trackedBox by remember { mutableStateOf<RectF?>(null) }
     val streak = remember { mutableStateMapOf<Int, Int>() }
     val liveOk = remember { mutableStateMapOf<Int, Boolean>() }
 
@@ -303,6 +307,7 @@ fun CameraScreen(state: AppState) {
         val bmp = previewView.bitmap ?: return
         val seenNow = things
         val tiltNow = tilt
+        val grayAtAsk = frame?.gray
         val ctx = phoneContext() + " What should this person do to take a better photo of this?"
         busy = true
         askError = null
@@ -312,8 +317,16 @@ fun CameraScreen(state: AppState) {
             busy = false
             when (r) {
                 is Reply.Ok -> {
-                    val subject = matchSubject(r.value.subjectBox, seenNow)
+                    val subject = r.value.subjectBox?.let { b -> matchSubject(b, seenNow) }
                     subjectBox = subject?.box ?: r.value.subjectBox
+                    // Start following it: remember how it looked when asked, and find it in the latest frame.
+                    tracker.stop(); trackedBox = null
+                    val b = r.value.subjectBox
+                    val nowGray = frame?.gray
+                    if (b != null && grayAtAsk != null && nowGray != null) {
+                        val ok = withContext(Dispatchers.Default) { tracker.start(grayAtAsk, b, nowGray) }
+                        trackedBox = if (ok) tracker.box else null
+                    }
                     streak.clear(); liveOk.clear(); checkError = null
                     val trusted = r.value.moves.map { liveCheck(it, tiltNow, subject) != true }
                     coach = Coach(r.value, subject?.id, liveTrusted = trusted)
@@ -350,12 +363,16 @@ fun CameraScreen(state: AppState) {
         }
     }
 
-    fun closeCoach() { coach = null; checkError = null; streak.clear(); liveOk.clear() }
+    fun closeCoach() { coach = null; checkError = null; streak.clear(); liveOk.clear(); tracker.stop(); trackedBox = null }
 
     // The photographer's subject, followed live: the same tracked thing, or whatever overlaps its last place most.
-    val coachSubject = coach?.let { c -> things.firstOrNull { it.id != null && it.id == c.subjectId } ?: subjectBox?.let { matchSubject(it, things) } }
+    val coachSubject = coach?.let { c ->
+        things.firstOrNull { it.id != null && it.id == c.subjectId }
+            ?: trackedBox?.let { Thing(null, it, c.advice.subject) }
+    }
     LaunchedEffect(frame) {
         val c = coach ?: return@LaunchedEffect
+        frame?.gray?.let { g -> if (tracker.locked) { tracker.update(g); trackedBox = tracker.box } }
         coachSubject?.let { subjectBox = it.box }
         // A step turns done after 2 good frames in a row and back after 3 bad ones, so it doesn't flicker.
         c.advice.moves.forEachIndexed { i, m ->
@@ -373,7 +390,8 @@ fun CameraScreen(state: AppState) {
             StepView(m, done = if (live) liveOk[i] == true else c.checked.getOrElse(i) { false }, live = live, note = c.notes.getOrElse(i) { "" })
         }
     }.orEmpty()
-    val ringStep = steps.indexOfFirst { !it.done && it.live && it.move.check == CheckBy.Frame }
+    // The ring shows for the first open position step even while the subject is momentarily lost (no dot then).
+    val ringStep = steps.indexOfFirst { !it.done && it.move.check == CheckBy.Frame }
     val ringMove = steps.getOrNull(ringStep)?.move
     val allDone = coach != null && (coach!!.ready || (steps.isNotEmpty() && steps.all { it.done }))
     // Set when the person closes the card (✕): quick tips for the rest of this scene.
@@ -457,6 +475,7 @@ fun CameraScreen(state: AppState) {
             CoachLayer(
                 target = ringMove?.let { P(it.targetX ?: 0.5f, it.targetY ?: 0.5f) },
                 subject = coachSubject?.let { P(it.cx, it.cy) },
+                subjectBox = if (ringMove != null) coachSubject?.box else null,
                 hit = ringStep >= 0 && liveOk[ringStep] == true,
                 modifier = Modifier.fillMaxSize(),
             )

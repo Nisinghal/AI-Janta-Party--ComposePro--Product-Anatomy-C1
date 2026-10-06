@@ -30,6 +30,8 @@ data class FrameResult(
     val centerY: Float,
     val clipFrac: Float,
     val warmth: Float,
+    /** Small upright greyscale copy of the frame, for following a subject by its look (Tracker). */
+    val gray: Gray? = null,
 )
 
 /**
@@ -47,10 +49,12 @@ class FrameAnalyzer(private val context: Context, private val onResult: (FrameRe
         lastRun = now
         try {
             val light = measureLight(proxy)
+            val p0 = proxy.planes[0]
+            val gray = grayFromLuma(p0.buffer, p0.rowStride, p0.pixelStride, proxy.width, proxy.height, proxy.imageInfo.rotationDegrees)
             val image = upright(proxy.toBitmap(), proxy.imageInfo.rotationDegrees)
             val things = steady(detect(image), now)
             Log.d(TAG, "things=${things.size} ${things.map { it.category }}")
-            val r = FrameResult(things, light.meanY, light.centerY, light.clipFrac, light.warmth)
+            val r = FrameResult(things, light.meanY, light.centerY, light.clipFrac, light.warmth, gray)
             mainThread.execute { onResult(r) }
         } catch (e: Exception) {
             Log.e(TAG, "analysis failed", e)

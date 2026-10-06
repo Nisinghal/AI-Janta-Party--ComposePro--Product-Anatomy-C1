@@ -34,6 +34,10 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import android.graphics.RectF
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
+import com.composepro.app.ai.CheckBy
 import com.composepro.app.ai.Move
 import com.composepro.app.guide.P
 import com.composepro.app.ui.theme.CP
@@ -120,13 +124,16 @@ private fun StepRow(index: Int, s: StepView) {
                 else -> s.move.why
             }
             Text(sub, style = CPType.Caption, color = CP.OnDark.copy(alpha = 0.75f))
+            if (!s.done && s.live && s.move.check == CheckBy.Frame) {
+                Text("Move the phone until the dot is inside the circle.", style = CPType.CaptionMedium, color = CP.OnDark)
+            }
         }
     }
 }
 
 /** When the first open step is about where the subject sits: a ring where it should go, a dot on it now, an arrow between. */
 @Composable
-fun CoachLayer(target: P?, subject: P?, hit: Boolean, modifier: Modifier = Modifier) {
+fun CoachLayer(target: P?, subject: P?, subjectBox: RectF?, hit: Boolean, modifier: Modifier = Modifier) {
     val a by animateFloatAsState(if (target != null) 1f else 0f, tween(250), label = "coachAlpha")
     Canvas(modifier.alpha(a)) {
         val t = target ?: return@Canvas
@@ -139,6 +146,13 @@ fun CoachLayer(target: P?, subject: P?, hit: Boolean, modifier: Modifier = Modif
             drawLine(CP.OnDark, to + Offset(-s, 0f), to + Offset(-s * 0.2f, s * 0.8f), 3f * density)
             drawLine(CP.OnDark, to + Offset(-s * 0.2f, s * 0.8f), to + Offset(s * 1.1f, -s * 0.8f), 3f * density)
             return@Canvas
+        }
+        // A faint outline around what the dot is on, so it's clear which thing has to move.
+        subjectBox?.let { b ->
+            drawRoundRect(
+                CP.OnDark.copy(alpha = 0.6f), Offset(b.left * w, b.top * h), Size(b.width() * w, b.height() * h),
+                CornerRadius(14f * density), style = Stroke(2f * density, pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f * density, 6f * density))),
+            )
         }
         drawCircle(CP.Glass, ring, to)
         drawCircle(CP.OnDark, ring, to, style = Stroke(3f * density))
