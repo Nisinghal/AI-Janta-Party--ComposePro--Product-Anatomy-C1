@@ -67,6 +67,9 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.composepro.app.AppState
 import com.composepro.app.PendingPhoto
 import com.composepro.app.Screen
+import com.composepro.app.ai.AskResult
+import com.composepro.app.ai.Photographer
+import com.composepro.app.camera.Tilt
 import com.composepro.app.camera.FrameAnalyzer
 import com.composepro.app.camera.FrameResult
 import com.composepro.app.camera.Thing
@@ -259,6 +262,30 @@ fun CameraScreen(state: AppState) {
         )
     }
 
+    // ---- Ask photographer: one frame to Claude, only when tapped ----
+    var asking by remember { mutableStateOf(false) }
+    var advice by remember { mutableStateOf<AskResult?>(null) }
+    fun askPhotographer() {
+        if (asking) return
+        val bmp = previewView.bitmap ?: run { toast = "The camera isn't ready yet."; return }
+        val held = when {
+            tilt == Tilt.Unknown -> "unknown"
+            tilt.flat -> "pointing straight down at a table"
+            tilt.offFlatDeg < 60f -> "tilted down, about ${tilt.offFlatDeg.toInt()}° from pointing straight down"
+            else -> "upright, at about eye level"
+        }
+        val context = "How the phone is held: $held. Zoom: ${String.format(java.util.Locale.US, "%.1f", zoom)}×. " +
+            "The phone's own detector thinks it sees: ${if (things.isEmpty()) "nothing it recognises" else describe(things)} (it can be wrong). " +
+            "What should this person do to take a better photo of this?"
+        asking = true
+        advice = null
+        scope.launch {
+            val result = withContext(Dispatchers.IO) { Photographer.ask(bmp, context) }
+            asking = false
+            advice = result
+        }
+    }
+
     fun notRight() {
         val main = shown.main
         if (main?.id != null) dismissedIds[main.id] = true else dismissedUntil = SystemClock.elapsedRealtime() + 15_000
@@ -293,7 +320,7 @@ fun CameraScreen(state: AppState) {
             ThingsLayer(if (pick != null) things.take(slots) else things, marksVisible, Modifier.fillMaxSize())
             GuideLayer(guide, slots, guideAlignment, points, guideVisible, Modifier.fillMaxSize())
             EdgeLayer(shown.main, shown.edge, Modifier.fillMaxSize())
-            TipCapsule(shown, ::notRight, Modifier.align(Alignment.TopCenter).padding(top = CPSpace.S2, start = CPSpace.S3, end = CPSpace.S3))
+            if (advice == null) TipCapsule(shown, ::notRight, Modifier.align(Alignment.TopCenter).padding(top = CPSpace.S2, start = CPSpace.S3, end = CPSpace.S3))
             NoteChip(if (dark) shown.phone else null, Modifier.align(Alignment.TopCenter).padding(top = CPSpace.S2))
             val top = Modifier.align(Alignment.TopCenter).padding(top = CPSpace.S2, start = CPSpace.S3, end = CPSpace.S3)
             InfoCapsule(
@@ -309,7 +336,7 @@ fun CameraScreen(state: AppState) {
                 line2 = pick?.why ?: "",
                 modifier = top,
             )
-            GuideChip(pick, guideVisible && !explaining, ::lookAgain, Modifier.align(Alignment.BottomCenter).padding(bottom = CPSpace.S2))
+            GuideChip(pick, guideVisible && !explaining && advice == null && !asking, ::lookAgain, Modifier.align(Alignment.BottomCenter).padding(bottom = CPSpace.S2))
             ZoomChip(zoom, now - zoomShownAt < 900, Modifier.align(Alignment.Center))
             Box(Modifier.fillMaxSize().alpha(flash.value).background(CP.OnDark))
             Box(Modifier.fillMaxSize().alpha(cover.value).background(CP.CameraBar))
@@ -318,9 +345,12 @@ fun CameraScreen(state: AppState) {
                     Text("Camera isn't available right now. Close other apps using it and try again.", style = CPType.Body, color = CP.OnDark, textAlign = TextAlign.Center)
                 }
             }
+            AdviceCard(advice, asking, onClose = { advice = null }, onRetry = ::askPhotographer, modifier = Modifier.align(Alignment.BottomCenter).padding(CPSpace.S2))
             toast?.let { GlassToast(it, Modifier.align(Alignment.BottomCenter).padding(bottom = CPSpace.S3)) }
         }
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+          Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            AskButton(asking, enabled = !unavailable, onClick = ::askPhotographer, modifier = Modifier.padding(bottom = CPSpace.S3))
             Row(Modifier.fillMaxWidth().padding(horizontal = CPSpace.S4), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     Modifier.size(CPSpace.Tap).clip(CPShape.Thumb).border(2.dp, CP.OnDark.copy(alpha = 0.85f), CPShape.Thumb)
@@ -339,6 +369,7 @@ fun CameraScreen(state: AppState) {
                     contentAlignment = Alignment.Center,
                 ) { Icon(Icons.Filled.Settings, "Settings", tint = CP.OnDark, modifier = Modifier.size(20.dp)) }
             }
+          }
         }
     }
 }

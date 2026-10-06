@@ -10,10 +10,10 @@
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
 
-    <!-- Promise from AX_SPEC: nothing gets sent away. ML Kit's libraries ask for these
-         to send Google anonymous usage stats; removing them means the app cannot reach
-         the internet at all. -->
-    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+    <!-- Internet is used only by "Ask photographer", which sends one frame to Claude when the
+         person taps it (user decision, 2026-10-06). Live tips stay on the phone. Google's
+         anonymous usage logging (pulled in by MediaPipe) is switched off further down. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
 
     <application
@@ -25,6 +25,13 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.ComposePro">
+
+        <!-- MediaPipe pulls in Google's anonymous usage logging. Removing its upload backend means
+             those logs have nowhere to go, so the only thing that ever leaves the phone is the
+             frame sent when "Ask photographer" is tapped. -->
+        <service
+            android:name="com.google.android.datatransport.runtime.backends.TransportBackendDiscovery"
+            tools:node="remove" />
 
         <activity
             android:name=".MainActivity"
