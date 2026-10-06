@@ -68,7 +68,7 @@ class FrameAnalyzer(private val context: Context, private val onResult: (FrameRe
                 .setBaseOptions(BaseOptions.builder().setModelAssetPath("efficientdet_lite0.tflite").build())
                 .setRunningMode(RunningMode.IMAGE)
                 .setMaxResults(8)
-                .setScoreThreshold(0.3f)
+                .setScoreThreshold(0.45f)
                 .build(),
         ).also { detector = it }
     } catch (e: Exception) {

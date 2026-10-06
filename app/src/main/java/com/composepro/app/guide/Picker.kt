@@ -1,6 +1,7 @@
 package com.composepro.app.guide
 
 import com.composepro.app.camera.Thing
+import com.composepro.app.camera.Tilt
 
 /** The phone angle a subject looks best from (GUIDANCE.md §3). Any = no angle advice. */
 enum class Angle { Above, Diner, Eye, Any }
@@ -9,7 +10,8 @@ enum class Angle { Above, Diner, Eye, Any }
  * What the camera decided after its 3-second look: the guide, how many things it's laid out for,
  * the best phone angle for the main subject, and a plain explanation.
  */
-data class GuidePick(val guide: Guide, val slots: Int, val seen: String, val why: String, val angle: Angle, val subject: String?) {
+/** [count] = how many things were in view when it picked, so it can tell when the scene really changes. */
+data class GuidePick(val guide: Guide, val slots: Int, val seen: String, val why: String, val angle: Angle, val subject: String?, val count: Int) {
     /** Two or more separate things: there's an arrangement to make as well as a phone position. */
     val arranging get() = slots >= 2
 }
@@ -36,17 +38,22 @@ private fun angleFor(name: String?): Angle = when (name) {
 /**
  * Picks a guide from what was seen (GUIDANCE.md §7 and §9). things are largest first.
  * One thing: a framing guide (centre or thirds) you reach by moving the phone.
- * Two or more: an arrangement guide (front & back, diagonal, triangle, grid, circle, spiral) plus phone tips.
+ * Two or more on a table (phone looking down): an arrangement guide (front & back, diagonal, triangle, grid,
+ * circle, spiral) plus phone tips. Phone upright (a room, outdoors): nothing can be rearranged, so it frames
+ * the biggest thing only (phone test 2026-10-06: it asked to move a bag hanging on a cupboard).
  */
-fun pickGuide(things: List<Thing>, fromAbove: Boolean): GuidePick? {
-    if (things.isEmpty()) return null
+fun pickGuide(all: List<Thing>, tilt: Tilt): GuidePick? {
+    if (all.isEmpty()) return null
+    val lookingDown = tilt != Tilt.Unknown && tilt.offFlatDeg < 60f
+    val fromAbove = tilt.flat
+    val things = if (lookingDown) all else all.take(1)
     val n = things.size.coerceAtMost(6)
     val seen = describe(things.take(n))
     val main = things[0]
     val name = main.category
     // A group: mostly tall things → from the side; otherwise a flat lay from above, like the reference images.
     val angle = if (n == 1) angleFor(name) else if (things.take(n).count { it.category in tall } * 2 > n) Angle.Eye else Angle.Above
-    fun pick(g: Guide, why: String) = GuidePick(g, n, seen, why, angle, name)
+    fun pick(g: Guide, why: String) = GuidePick(g, n, seen, why, angle, name, all.size)
 
     return when (n) {
         1 -> when {

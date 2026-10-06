@@ -191,9 +191,9 @@ fun CameraScreen(state: AppState) {
             // The count seen most often over the 3 seconds, so one missed or doubled frame doesn't decide it.
             val usual = samples.groupingBy { it.size }.eachCount().maxBy { it.value }.key
             if (usual == 0) { samples.clear(); scanStart = t; return@LaunchedEffect }
-            pick = pickGuide(samples.last { it.size == usual }, tilt.flat)
+            pick = pickGuide(samples.last { it.size == usual }, tilt)
             pickedAt = t
-        } else if (f.things.size != p.slots) {
+        } else if (f.things.size != p.count) {
             // Something added or taken away, or the phone pointed somewhere else, for a good while
             // (not a missed frame or a hand passing through): look again. Tapping the label also does it.
             if (mismatchSince == 0L) mismatchSince = t else if (t - mismatchSince > RELOOK_MS) lookAgain()
@@ -290,7 +290,7 @@ fun CameraScreen(state: AppState) {
         Box(Modifier.fillMaxWidth().aspectRatio(3f / 4f).clip(CPShape.Sheet).then(gestures)) {
             AndroidView({ previewView }, Modifier.fillMaxSize())
             GridLayer(state.tipsOn && !dark, Modifier.fillMaxSize())
-            ThingsLayer(things, marksVisible, Modifier.fillMaxSize())
+            ThingsLayer(if (pick != null) things.take(slots) else things, marksVisible, Modifier.fillMaxSize())
             GuideLayer(guide, slots, guideAlignment, points, guideVisible, Modifier.fillMaxSize())
             EdgeLayer(shown.main, shown.edge, Modifier.fillMaxSize())
             TipCapsule(shown, ::notRight, Modifier.align(Alignment.TopCenter).padding(top = CPSpace.S2, start = CPSpace.S3, end = CPSpace.S3))
