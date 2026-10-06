@@ -66,6 +66,13 @@ object Photographer {
      * Flash-Lite leads the list: it's the quickest and rarely busy (speed matters most, user feedback 2026-10-06).
      */
     @Volatile private var lastGood: String? = null
+
+    /**
+     * Gemini's newer models quietly "think" before answering, which made each answer take 4–18 s (median ~7 s,
+     * phone log 2026-10-06). Two or three photo steps don't need it, so thinking is switched off. If a model
+     * refuses that setting, it's dropped for the rest of the session.
+     */
+    @Volatile private var noThinking = true
     private fun endpoint(model: String) = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"
 
     private val PERSONA = """
@@ -163,7 +170,8 @@ object Photographer {
     /** Sends one frame + text, trying each model in turn. Returns the JSON text of the answer. */
     private fun generate(system: String, schema: JSONObject, frame: Bitmap, text: String): Reply<String> {
         if (!hasKey) return Reply.Failed("The photographer needs a Gemini API key. Add it to local.properties and rebuild the app.")
-        val body = JSONObject()
+        val image = toJpegBase64(frame)
+        fun body(): String = JSONObject()
             .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", system))))
             .put(
                 "contents",
@@ -171,28 +179,41 @@ object Photographer {
                     JSONObject().put("role", "user").put(
                         "parts",
                         JSONArray()
-                            .put(JSONObject().put("inlineData", JSONObject().put("mimeType", "image/jpeg").put("data", toJpegBase64(frame))))
+                            .put(JSONObject().put("inlineData", JSONObject().put("mimeType", "image/jpeg").put("data", image)))
                             .put(JSONObject().put("text", text)),
                     ),
                 ),
             )
-            .put("generationConfig", JSONObject().put("responseMimeType", "application/json").put("responseSchema", schema))
+            .put(
+                "generationConfig",
+                JSONObject().put("responseMimeType", "application/json").put("responseSchema", schema).apply {
+                    if (noThinking) put("thinkingConfig", JSONObject().put("thinkingBudget", 0))
+                },
+            )
             .toString()
 
         var last: Reply<String> = Reply.Failed("The photographer is busy right now. Try again in a moment.")
         for (model in (listOfNotNull(lastGood) + MODELS).distinct()) {
             val started = System.currentTimeMillis()
-            val (code, reply) = try {
-                post(model, body)
+            var (code, reply) = try {
+                post(model, body())
             } catch (e: SocketTimeoutException) {
                 return Reply.Failed("The photographer took too long. Try again.")
             } catch (e: IOException) {
                 return Reply.Failed("Couldn't reach the photographer. Check your internet and try again.")
             }
+            if (code == 400 && noThinking && "thinking" in reply.lowercase()) {
+                // This model won't turn thinking off: ask again without that setting.
+                Log.w("ComposePro", "Gemini $model refused thinkingBudget 0; retrying with thinking on")
+                noThinking = false
+                val retry = try { post(model, body()) } catch (e: IOException) { return Reply.Failed("Couldn't reach the photographer. Check your internet and try again.") }
+                code = retry.first; reply = retry.second
+            }
             if (code in 200..299) {
                 lastGood = model
                 val answer = answerText(reply)
-                Log.i("ComposePro", "Gemini $model answered in ${System.currentTimeMillis() - started} ms: ${answer ?: reply.take(400)}")
+                val version = try { JSONObject(reply).optString("modelVersion") } catch (e: Exception) { "" }
+                Log.i("ComposePro", "Gemini $model ($version, thinking ${if (noThinking) "off" else "on"}) answered in ${System.currentTimeMillis() - started} ms: ${answer ?: reply.take(400)}")
                 return answer?.let { Reply.Ok(it) } ?: Reply.Failed("The photographer couldn't answer this time. Try again.")
             }
             Log.w("ComposePro", "Gemini $model error $code after ${System.currentTimeMillis() - started} ms: ${reply.take(200)}")
@@ -284,9 +305,9 @@ object Photographer {
         null
     }
 
-    /** About 768px on the long side is plenty to judge a composition, and keeps the upload small and quick. */
+    /** About 640px on the long side is plenty to judge a composition, and keeps the upload small and quick. */
     private fun toJpegBase64(src: Bitmap): String {
-        val scale = minOf(1f, 768f / max(src.width, src.height))
+        val scale = minOf(1f, 640f / max(src.width, src.height))
         val bmp = if (scale < 1f) Bitmap.createScaledBitmap(src, (src.width * scale).roundToInt(), (src.height * scale).roundToInt(), true) else src
         val out = ByteArrayOutputStream()
         bmp.compress(Bitmap.CompressFormat.JPEG, 75, out)

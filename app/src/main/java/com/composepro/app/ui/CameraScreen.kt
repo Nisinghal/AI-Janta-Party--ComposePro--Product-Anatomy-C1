@@ -39,6 +39,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -185,6 +186,9 @@ fun CameraScreen(state: AppState) {
     var pick by remember { mutableStateOf<GuidePick?>(null) }
     var scanStart by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     var pickedAt by remember { mutableLongStateOf(0L) }
+    // True while the photographer's steps are on screen. Following a step changes what's in view (things come and go
+    // as the phone moves), which used to count as a new scene and wipe the steps (phone test 2026-10-06).
+    val planUp = remember { mutableStateOf(false) }
     val samples = remember { mutableListOf<List<Thing>>() }
     var mismatchSince by remember { mutableLongStateOf(0L) }
     fun lookAgain() { pick = null; samples.clear(); scanStart = SystemClock.elapsedRealtime(); mismatchSince = 0L }
@@ -201,6 +205,8 @@ fun CameraScreen(state: AppState) {
             if (usual == 0) { samples.clear(); scanStart = t; return@LaunchedEffect }
             pick = pickGuide(samples.last { it.size == usual }, tilt)
             pickedAt = t
+        } else if (planUp.value) {
+            mismatchSince = 0L
         } else if (f.things.size != p.count || (p.slots == 1 && f.things.none { it.id == p.mainId })) {
             // Something added or taken away, or the phone pointed somewhere else, for a good while
             // (not a missed frame or a hand passing through): look again. Tapping the label also does it.
@@ -373,6 +379,7 @@ fun CameraScreen(state: AppState) {
     val auto = state.tipsOn && Photographer.hasKey
     /** The photographer owns the screen: its card is up, or it's about to be (asking, no failure, not closed). */
     val photographerOn = coach != null || (auto && askError == null && closedFor != scanStart && !dark)
+    SideEffect { planUp.value = coach != null }
 
     // ---- Automatic (user decisions, 2026-10-06): no buttons. The photographer is asked as soon as the view has been
     // up for 0.8s (not after the 3-second look: too slow). Steps the phone can't measure are re-checked by themselves
@@ -404,7 +411,7 @@ fun CameraScreen(state: AppState) {
         if (steps.none { !it.done && !it.live }) return@LaunchedEffect
         val sinceReq = now - lastReqAt
         val settled = now - sceneChangedAt >= 1500
-        if (sinceReq >= 6_000 && ((scene != sceneAtCheck && settled) || sinceReq >= 15_000)) {
+        if (sinceReq >= 10_000 && scene != sceneAtCheck && settled) {
             sceneAtCheck = scene
             checkShot()
         }
