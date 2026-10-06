@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!--
+      The window starts in the splash's ink colour, so opening the app goes straight from the launcher into the dark
+      splash with no white flash first (seen on the phone, 2026-10-06).
+    -->
+    <style name="Theme.ComposePro" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/ink</item>
+        <item name="android:statusBarColor">@color/ink</item>
+        <item name="android:navigationBarColor">@color/ink</item>
+    </style>
+</resources>
