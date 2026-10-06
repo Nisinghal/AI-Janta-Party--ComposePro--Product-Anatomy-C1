@@ -148,6 +148,19 @@ object Photographer {
         phone, how much space is around the subject, whether lines are straight, and whether anything could be moved or
         removed to make it cleaner.
 
+        First decide what kind of shot this is, because the moves differ:
+        - a table-top: food, drinks or small things they can pick up. They can move things and the phone.
+        - a scene: a tree, building, street, room, landscape or sky. Nothing can be moved; only the phone (step left,
+          right, back, crouch, tilt). Keep the whole main subject in (a whole tree, the top of a building), keep upright
+          lines straight and the horizon level, and leave some sky or ground around it. Never suggest filling the picture
+          with ground, floor or sky.
+        - an animal or a person: only the phone; keep their head in, leave space on the side they face.
+        Pick ONE main subject (the thing the person is clearly pointing at) and build every move around it.
+        All moves must agree with each other and with the chosen frame: never ask to include something in one move and
+        remove it in another, and never give two moves that place the subject in different spots.
+        Only ask for moves that are physically possible from where the phone is: don't ask to lower the phone below the
+        table or ground the subject stands on, and if the phone is already close to the right height, don't ask again.
+
         Give only moves they can do in the next 10 seconds: move or tilt the phone, step closer or back, change height,
         turn toward or away from the light, move or remove small things in front of them, change what is behind the
         subject. Never suggest editing apps, filters, buying gear, changing camera settings or tapping the screen.
@@ -171,6 +184,9 @@ object Photographer {
         Set frame, and frame_why in at most 10 plain words ("One subject looks more alive a little off-centre").
         Every "frame" move below must put its target_x/target_y on one of that frame's spots, and the action should say
         it in plain words ("Put the statue on the left cross of the grid", "Move the phone so the cup is in the middle").
+        Use the spot nearest to where the subject already is, so the move is small. Give at most ONE "frame" move.
+        For a big subject that fills most of the picture (a tall tree, a building), place it on a third LINE (move it
+        left or right) rather than its middle on a cross point.
 
         For each move say how it can be checked:
         - check "angle" if the move is only about the phone's height or tilt; set angle to "above" (phone flat, looking
@@ -356,13 +372,22 @@ object Photographer {
             "thirds" -> Guide.Thirds; "centre" -> Guide.Centre; "front_back" -> Guide.FrontBack; "diagonal" -> Guide.Diagonal
             "triangle" -> Guide.Triangle; "grid" -> Guide.Grid; "circle" -> Guide.Circle; "spiral" -> Guide.Spiral; else -> null
         }
-        // Targets sit exactly on the drawn frame: snap each to the frame's nearest spot when it's close.
+        // Targets sit exactly on the drawn frame: snap each to the frame's nearest spot when it's close. On the thirds
+        // grid any cross will do, so use the one nearest the subject (a classmate saw a tree being sent to the top corner,
+        // 2026-10-06); a subject taller than half the picture only moves sideways onto a third line.
         val spots = frame?.let { targets(it, frameSlots(it)) }.orEmpty()
         fun snap(x: Float?, y: Float?): Pair<Float?, Float?> {
             if (x == null || y == null || spots.isEmpty()) return x to y
             val near = spots.minBy { (it.x - x) * (it.x - x) + (it.y - y) * (it.y - y) }
             return if (hypot(near.x - x, near.y - y) < 0.2f) near.x to near.y else x to y
         }
+        fun thirdsFor(x: Float?, y: Float?): Pair<Float?, Float?> {
+            if (frame != Guide.Thirds || box == null || x == null || y == null) return x to y
+            val nx = if (box.centerX() < 0.5f) 1f / 3 else 2f / 3
+            if (box.height() > 0.5f) return nx to box.centerY().coerceIn(0.3f, 0.7f)
+            return nx to (if (box.centerY() < 0.5f) 1f / 3 else 2f / 3)
+        }
+        var frameMoves = 0
         Advice(
             seen = o.optString("seen"),
             subject = o.optString("subject"),
@@ -372,7 +397,8 @@ object Photographer {
                 val check = when (m.optString("check")) { "angle" -> CheckBy.Angle; "frame" -> CheckBy.Frame; else -> CheckBy.Other }
                 val angle = when (m.optString("angle")) { "above" -> ShotAngle.Above; "diner" -> ShotAngle.Diner; "eye" -> ShotAngle.Eye; else -> null }
                 fun frac(key: String) = if (m.has(key)) m.optDouble(key).toFloat().takeIf { it in 0f..1f } else null
-                val (tx, ty) = snap(frac("target_x"), frac("target_y"))
+                val (sx, sy) = snap(frac("target_x"), frac("target_y"))
+                val (tx, ty) = thirdsFor(sx, sy)
                 Move(
                     action = m.optString("action"),
                     why = m.optString("why"),
@@ -380,6 +406,8 @@ object Photographer {
                     check = when {
                         check == CheckBy.Angle && angle == null -> CheckBy.Other
                         check == CheckBy.Frame && (tx == null || ty == null) -> CheckBy.Other
+                        // Only one position move: a second one would pull the subject to another spot.
+                        check == CheckBy.Frame && frameMoves++ > 0 -> CheckBy.Other
                         else -> check
                     },
                     angle = angle, targetX = tx, targetY = ty, size = frac("size"),

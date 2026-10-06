@@ -81,6 +81,7 @@ import com.composepro.app.camera.FrameAnalyzer
 import com.composepro.app.camera.FrameResult
 import com.composepro.app.camera.Thing
 import com.composepro.app.camera.Tracker
+import com.composepro.app.camera.Gray
 import com.composepro.app.camera.Thresholds
 import com.composepro.app.camera.TipDecision
 import com.composepro.app.camera.TipKind
@@ -293,6 +294,10 @@ fun CameraScreen(state: AppState) {
     var trackedBox by remember { mutableStateOf<RectF?>(null) }
     val streak = remember { mutableStateMapOf<Int, Int>() }
     val liveOk = remember { mutableStateMapOf<Int, Boolean>() }
+    // Steps the person ticked off themselves ("I can't go any lower than this", classmate S, 2026-10-06).
+    val manualDone = remember { mutableStateMapOf<Int, Boolean>() }
+    // What the view looked like when the plan arrived, to notice when they've turned to something else.
+    var planGray by remember { mutableStateOf<Gray?>(null) }
 
     fun phoneContext(): String {
         val held = when {
@@ -340,6 +345,7 @@ fun CameraScreen(state: AppState) {
                     streak.clear(); liveOk.clear(); checkError = null
                     val trusted = r.value.moves.map { it.check != CheckBy.Angle || liveCheck(it, tiltNow, subject) != true }
                     planScene = coarseScene(frame, tilt); planAt = SystemClock.elapsedRealtime(); lostSince = 0L
+                    planGray = frame?.gray; manualDone.clear()
                     coach = Coach(r.value, subject?.id, liveTrusted = trusted)
                 }
                 is Reply.Failed -> {
@@ -405,7 +411,8 @@ fun CameraScreen(state: AppState) {
         c.advice.moves.mapIndexed { i, m ->
             val measurable = when (m.check) { CheckBy.Angle -> tilt != Tilt.Unknown; CheckBy.Frame -> coachSubject != null; CheckBy.Other -> false }
             val live = measurable && c.liveTrusted.getOrElse(i) { true }
-            StepView(m, done = if (live) liveOk[i] == true else c.checked.getOrElse(i) { false }, live = live, note = c.notes.getOrElse(i) { "" })
+            val auto = if (live) liveOk[i] == true else c.checked.getOrElse(i) { false }
+            StepView(m, done = auto || manualDone[i] == true, live = live, note = c.notes.getOrElse(i) { "" })
         }
     }.orEmpty()
     // The ring shows for the first open position step even while the subject is momentarily lost (no dot then).
@@ -445,9 +452,11 @@ fun CameraScreen(state: AppState) {
             if (firstAsk || retry) { askedFor = scanStart; askPhotographer() }
             return@LaunchedEffect
         }
-        // Pointed somewhere else (subject gone 3 s and the view clearly brighter/darker or at another angle):
-        // that plan was for another scene, e.g. one made while the phone lay face-down. Get a fresh one.
-        if (lostSince != 0L && now - lostSince > 3_000 && now - planAt > 6_000 && coarseScene(frame, tilt) != planScene) {
+        // Turned to something else: the subject has been gone 2.5 s and the view looks clearly different from when the
+        // plan came (or brighter/darker, or at another angle). Old steps for the old subject are dropped and new ones
+        // asked for (classmate N: "if you change focus to another subject it still gives suggestions for the old one").
+        val looksDifferent = coarseScene(frame, tilt) != planScene || differs(frame?.gray, planGray) > 28f
+        if (lostSince != 0L && now - lostSince > 2_500 && now - planAt > 4_000 && looksDifferent) {
             closeCoach(); askedFor = -1L
             return@LaunchedEffect
         }
@@ -543,7 +552,9 @@ fun CameraScreen(state: AppState) {
                 CoachCard(
                     frame = it.advice.frame?.label, frameWhy = it.advice.frameWhy,
                     steps = steps, ready = allDone, checking = busy, error = checkError,
-                    onClose = { closeCoach(); closedFor = scanStart }, modifier = cardSpot,
+                    onClose = { closeCoach(); closedFor = scanStart },
+                    onTick = { i -> manualDone[i] = !(manualDone[i] ?: false) },
+                    modifier = cardSpot,
                 )
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = CPSpace.S4), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -584,3 +595,11 @@ private fun darkOnly(frame: FrameResult?): TipDecision =
 /** Brightness and phone angle in coarse steps: changes only when the person points somewhere clearly different. */
 private fun coarseScene(frame: FrameResult?, tilt: Tilt): List<Int> =
     listOf(((frame?.meanY ?: 0f) / 30).toInt(), (tilt.offFlatDeg / 25).toInt())
+
+/** Average difference (0–255) between two greyscale frames: small while following steps, large on a new scene. */
+private fun differs(a: Gray?, b: Gray?): Float {
+    if (a == null || b == null || a.px.size != b.px.size) return 0f
+    var sum = 0L
+    for (i in a.px.indices step 2) sum += kotlin.math.abs((a.px[i].toInt() and 0xFF) - (b.px[i].toInt() and 0xFF))
+    return sum.toFloat() / (a.px.size / 2)
+}

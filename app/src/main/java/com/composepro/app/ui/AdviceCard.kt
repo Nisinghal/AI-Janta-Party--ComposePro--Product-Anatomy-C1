@@ -54,7 +54,10 @@ data class StepView(val move: Move, val done: Boolean, val live: Boolean, val no
  * when the photographer looks again after the person changes something (user decision, 2026-10-06).
  */
 @Composable
-fun CoachCard(frame: String?, frameWhy: String, steps: List<StepView>, ready: Boolean, checking: Boolean, error: String?, onClose: () -> Unit, modifier: Modifier = Modifier) {
+fun CoachCard(
+    frame: String?, frameWhy: String, steps: List<StepView>, ready: Boolean, checking: Boolean, error: String?,
+    onClose: () -> Unit, onTick: (Int) -> Unit, modifier: Modifier = Modifier,
+) {
     // All steps at once under the camera view (user request, 2026-10-06). The one to do now is bold and carries its
     // hint; the camera view only shows the ring/box for that one.
     val allDone = ready || (steps.isNotEmpty() && steps.all { it.done })
@@ -77,7 +80,11 @@ fun CoachCard(frame: String?, frameWhy: String, steps: List<StepView>, ready: Bo
         }
         steps.forEachIndexed { i, s ->
             val now = i == current
-            Row(Modifier.padding(top = if (i == 0) 0.dp else 8.dp), verticalAlignment = Alignment.Top) {
+            Row(
+                Modifier.padding(top = if (i == 0) 0.dp else 8.dp).clip(CPShape.Thumb)
+                    .clickable(role = Role.Checkbox, onClickLabel = if (s.done) "Untick" else "Tick off") { onTick(i) },
+                verticalAlignment = Alignment.Top,
+            ) {
                 // Red number = still to do; green ✓ = done.
                 Box(
                     Modifier.padding(top = 1.dp).size(22.dp).clip(CPShape.Pill).background(if (s.done) CP.Right else CP.Off),
@@ -100,6 +107,9 @@ fun CoachCard(frame: String?, frameWhy: String, steps: List<StepView>, ready: Bo
                     }
                 }
             }
+        }
+        if (!allDone && steps.size > 1) {
+            Text("Can't do a step? Tap it to tick it off.", style = CPType.Caption, color = CP.OnDark.copy(alpha = 0.55f), modifier = Modifier.padding(top = 8.dp))
         }
         if (allDone) {
             Text("✓ All done. Take the photo.", style = CPType.BodyStrong, color = CP.Right, modifier = Modifier.padding(top = 8.dp))

@@ -33,10 +33,9 @@ import kotlinx.coroutines.launch
 
 private data class TourCard(val text: String, val edge: EdgeState, val warm: Boolean, val tip: Boolean)
 
+// One card, not three (classmate N, 2026-10-06: "the three-step onboarding is unnecessary, can do in 1").
 private val cards = listOf(
-    TourCard("Point at anything. In a moment you'll get a few steps to a better photo.", EdgeState.Off, warm = true, tip = false),
-    TourCard("Red number: still to do. It turns into a green ✓ by itself when you've done it.", EdgeState.Off, warm = true, tip = true),
-    TourCard("Steps are just suggestions. The shutter always works.", EdgeState.Right, warm = false, tip = false),
+    TourCard("Point at anything and follow the steps. Red numbers turn into a green ✓ when you've done them. The shutter always works.", EdgeState.Right, warm = false, tip = false),
 )
 
 @Composable
@@ -65,7 +64,7 @@ fun TourScreen(onDone: () -> Unit) {
                 Text(card.text, style = CPType.Heading, color = CP.Ink, modifier = Modifier.heightIn(min = 72.dp))
             }
         }
-        Row(Modifier.fillMaxWidth().padding(vertical = CPSpace.S3), horizontalArrangement = Arrangement.spacedBy(CPSpace.S1, Alignment.CenterHorizontally)) {
+        if (cards.size > 1) Row(Modifier.fillMaxWidth().padding(vertical = CPSpace.S3), horizontalArrangement = Arrangement.spacedBy(CPSpace.S1, Alignment.CenterHorizontally)) {
             repeat(cards.size) { i ->
                 val on = pager.currentPage == i
                 val w by animateDpAsState(if (on) 20.dp else 8.dp, label = "dot")
