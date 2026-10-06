@@ -12,6 +12,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,6 +27,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
@@ -305,6 +310,41 @@ fun ZoomChip(zoom: Float, visible: Boolean, modifier: Modifier = Modifier) {
     AnimatedVisibility(visible = visible, enter = fadeIn(tween(150)), exit = fadeOut(tween(150)), modifier = modifier) {
         Box(Modifier.clip(CPShape.Pill).background(CP.Glass).padding(horizontal = 12.dp, vertical = 6.dp)) {
             Text(String.format("%.1f×", zoom), style = CPType.CaptionMedium, color = CP.OnDark)
+        }
+    }
+}
+
+/** A ring where the person tapped to focus, shrinking onto the spot like any camera app. */
+@Composable
+fun FocusRing(at: Offset?, visible: Boolean) {
+    val a by animateFloatAsState(if (visible && at != null) 1f else 0f, tween(if (visible) 120 else 300), label = "focusAlpha")
+    val grow by animateFloatAsState(if (visible) 1f else 1.25f, tween(250), label = "focusSize")
+    Canvas(Modifier.fillMaxSize().alpha(a)) {
+        val c = at ?: return@Canvas
+        drawCircle(Color.White, 34f * density * (2.2f - grow), c, style = Stroke(2f * density))
+        drawCircle(Color.White, 3f * density, c)
+    }
+}
+
+/** Quick zoom like a phone's own camera: 1× and 2× (only if the camera can zoom that far). The current one is filled. */
+@Composable
+fun ZoomButtons(zoom: Float, maxZoom: Float, onZoom: (Float) -> Unit, modifier: Modifier = Modifier) {
+    val stops = listOf(1f, 2f).filter { it <= maxZoom + 0.01f }
+    if (stops.size < 2) return
+    Row(modifier.clip(CPShape.Pill).background(CP.Glass).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        stops.forEach { z ->
+            val on = kotlin.math.abs(zoom - z) < 0.15f
+            Box(
+                Modifier.size(40.dp).clip(CPShape.Pill).background(if (on) CP.OnDark else Color.Transparent)
+                    .clickable(role = Role.Button) { onZoom(z) }
+                    .semantics { contentDescription = "Zoom ${z.toInt()} times" },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    if (on || zoom < 1.05f || z != 1f) "${z.toInt()}×" else String.format("%.1f×", zoom),
+                    style = CPType.CaptionMedium, color = if (on) CP.Ink else CP.OnDark,
+                )
+            }
         }
     }
 }

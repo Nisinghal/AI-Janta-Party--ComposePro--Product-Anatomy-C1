@@ -19,9 +19,11 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.ui.geometry.Offset
+import androidx.camera.core.FocusMeteringAction
+import java.util.concurrent.TimeUnit
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -478,28 +480,36 @@ fun CameraScreen(state: AppState) {
         toast = "Got it. No more tips for this one."
     }
 
-    // Pinch to zoom.
-    val gestures = Modifier.pointerInput(camera) {
-        awaitEachGesture {
-            awaitFirstDown(requireUnconsumed = false)
-            while (true) {
-                val event = awaitPointerEvent()
-                if (event.changes.none { it.pressed }) break
-                if (event.changes.size > 1) {
-                    val cam = camera ?: continue
-                    val maxZoom = cam.cameraInfo.zoomState.value?.maxZoomRatio ?: 1f
-                    zoom = (zoom * event.calculateZoom()).coerceIn(1f, maxZoom)
-                    cam.cameraControl.setZoomRatio(zoom)
-                    zoomShownAt = SystemClock.elapsedRealtime()
-                    event.changes.forEach { it.consume() }
-                }
-            }
-        }
+    // ---- Camera basics like any camera app (classmate feedback 2026-10-06: "it doesn't zoom in, zoom out or focus
+    // like a simple camera"). Pinch to zoom, tap to focus, 1×/2× buttons. The gestures sit on a layer ABOVE the
+    // preview: the preview view used to take the touches itself, so the old pinch never fired. ----
+    fun setZoom(z: Float) {
+        val cam = camera ?: return
+        val zs = cam.cameraInfo.zoomState.value
+        zoom = z.coerceIn(zs?.minZoomRatio ?: 1f, zs?.maxZoomRatio ?: 1f)
+        cam.cameraControl.setZoomRatio(zoom)
+        zoomShownAt = SystemClock.elapsedRealtime()
     }
+    var focusAt by remember { mutableStateOf<Offset?>(null) }
+    var focusShownAt by remember { mutableLongStateOf(0L) }
+    fun focus(at: Offset) {
+        val cam = camera ?: return
+        val point = previewView.meteringPointFactory.createPoint(at.x, at.y)
+        val action = FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE)
+            .setAutoCancelDuration(4, TimeUnit.SECONDS)
+            .build()
+        cam.cameraControl.startFocusAndMetering(action)
+        focusAt = at
+        focusShownAt = SystemClock.elapsedRealtime()
+    }
+    val touchLayer = Modifier
+        .pointerInput(camera) { detectTransformGestures { _, _, zoomChange, _ -> if (zoomChange != 1f) setZoom(zoom * zoomChange) } }
+        .pointerInput(camera) { detectTapGestures(onTap = { focus(it) }) }
 
     Column(Modifier.fillMaxSize().background(CP.CameraBar).statusBarsPadding()) {
-        Box(Modifier.fillMaxWidth().aspectRatio(3f / 4f).clip(CPShape.Sheet).then(gestures)) {
+        Box(Modifier.fillMaxWidth().aspectRatio(3f / 4f).clip(CPShape.Sheet)) {
             AndroidView({ previewView }, Modifier.fillMaxSize())
+            Box(Modifier.fillMaxSize().then(touchLayer))
             GridLayer(state.tipsOn && !dark, Modifier.fillMaxSize())
             ThingsLayer(if (pick != null) things.take(slots) else things, marksVisible && !photographerOn, Modifier.fillMaxSize())
             GuideLayer(guide, slots, guideAlignment, points, guideVisible && !photographerOn, Modifier.fillMaxSize())
@@ -534,6 +544,11 @@ fun CameraScreen(state: AppState) {
             )
             GuideChip(pick, guideVisible && !explaining && !photographerOn, ::lookAgain, Modifier.align(Alignment.BottomCenter).padding(bottom = CPSpace.S2))
             ZoomChip(zoom, now - zoomShownAt < 900, Modifier.align(Alignment.Center))
+            FocusRing(focusAt, now - focusShownAt < 1200)
+            ZoomButtons(
+                zoom = zoom, maxZoom = camera?.cameraInfo?.zoomState?.value?.maxZoomRatio ?: 1f,
+                onZoom = ::setZoom, modifier = Modifier.align(Alignment.BottomEnd).padding(end = CPSpace.S2, bottom = CPSpace.S2),
+            )
             Box(Modifier.fillMaxSize().alpha(flash.value).background(CP.OnDark))
             Box(Modifier.fillMaxSize().alpha(cover.value).background(CP.CameraBar))
             if (unavailable) {
