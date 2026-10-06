@@ -5,6 +5,10 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+val local = Properties().apply {
+    rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
+}
+
 android {
     namespace = "com.composepro.app"
     compileSdk {
@@ -23,16 +27,21 @@ android {
         // Real phones only: MediaPipe's emulator (x86) copies would double the app's size.
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
 
-        // "Ask photographer" uses Google's Gemini API (free tier). The key lives in local.properties, which never goes to GitHub:
-        //   GEMINI_API_KEY=...
-        // Without it the app still works; the button explains that a key is needed.
-        val local = Properties().apply {
-            rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
-        }
+        // The photographer uses Google's Gemini API (free tier). Keys live in local.properties, which never goes to GitHub:
+        //   GEMINI_API_KEY=...         (your own phone)
+        //   GEMINI_TESTER_KEY=...      (the "share" build for classmates; delete this key in AI Studio after testing)
+        // Without a key the app still works with the quick on-phone tips.
         buildConfigField("String", "GEMINI_API_KEY", "\"${local.getProperty("GEMINI_API_KEY", "")}\"")
     }
 
     buildTypes {
+        // The APK shared with classmates for feedback: same as debug, but with the separate tester key,
+        // so your own key never leaves your phone. Build with: gradlew assembleShare (Android forbids build names starting with "test")
+        create("share") {
+            initWith(getByName("debug"))
+            matchingFallbacks += listOf("debug")
+            buildConfigField("String", "GEMINI_API_KEY", "\"${local.getProperty("GEMINI_TESTER_KEY", "")}\"")
+        }
         release {
             optimization {
                 enable = true

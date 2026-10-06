@@ -65,7 +65,7 @@ fun CoachCard(frame: String?, frameWhy: String, steps: List<StepView>, ready: Bo
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "Better shot" + (frame?.let { " · $it" } ?: "") + " · ${steps.count { it.done }} of ${steps.size} done",
+                "Compose Pro" + (frame?.let { " · $it" } ?: "") + " · ${steps.count { it.done }} of ${steps.size} done",
                 style = CPType.CaptionMedium, color = CP.OnDark.copy(alpha = 0.75f), modifier = Modifier.weight(1f),
             )
             if (checking) CircularProgressIndicator(Modifier.size(12.dp), color = CP.OnDark.copy(alpha = 0.7f), strokeWidth = 1.5.dp)
