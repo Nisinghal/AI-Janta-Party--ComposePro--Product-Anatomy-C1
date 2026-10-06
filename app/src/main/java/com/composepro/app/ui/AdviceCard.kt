@@ -54,7 +54,7 @@ data class StepView(val move: Move, val done: Boolean, val live: Boolean, val no
  * when the photographer looks again after the person changes something (user decision, 2026-10-06).
  */
 @Composable
-fun CoachCard(steps: List<StepView>, ready: Boolean, checking: Boolean, error: String?, onClose: () -> Unit, modifier: Modifier = Modifier) {
+fun CoachCard(frame: String?, frameWhy: String, steps: List<StepView>, ready: Boolean, checking: Boolean, error: String?, onClose: () -> Unit, modifier: Modifier = Modifier) {
     // One step at a time, under the camera view, so the view itself only carries the ring, box and dot
     // (the full list over the view hid the white box; phone test 2026-10-06).
     val allDone = ready || (steps.isNotEmpty() && steps.all { it.done })
@@ -72,7 +72,7 @@ fun CoachCard(steps: List<StepView>, ready: Boolean, checking: Boolean, error: S
                 ) { Text(if (s.done) "✓" else "${i + 1}", style = CPType.Caption, color = CP.OnDark) }
             }
             Text(
-                if (allDone || current < 0) "All done" else "Step ${current + 1} of ${steps.size}",
+                (if (allDone || current < 0) "All done" else "Step ${current + 1} of ${steps.size}") + (frame?.let { " · $it" } ?: ""),
                 style = CPType.CaptionMedium, color = CP.OnDark.copy(alpha = 0.75f),
                 modifier = Modifier.weight(1f).padding(start = 6.dp),
             )
@@ -85,6 +85,7 @@ fun CoachCard(steps: List<StepView>, ready: Boolean, checking: Boolean, error: S
         }
         if (allDone || current < 0) {
             Text("✓ All done. Take the photo.", style = CPType.BodyStrong, color = CP.Right)
+            if (frameWhy.isNotBlank()) Text("${frame ?: "Frame"}: $frameWhy", style = CPType.Caption, color = CP.OnDark.copy(alpha = 0.75f))
         } else {
             val s = steps[current]
             Text(s.move.action, style = CPType.BodyStrong, color = CP.OnDark, maxLines = 2)

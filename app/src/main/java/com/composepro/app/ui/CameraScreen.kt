@@ -70,6 +70,7 @@ import com.composepro.app.PendingPhoto
 import com.composepro.app.Screen
 import com.composepro.app.ai.CheckBy
 import com.composepro.app.ai.Coach
+import com.composepro.app.ai.frameSlots
 import com.composepro.app.ai.Reply
 import com.composepro.app.ai.liveCheck
 import com.composepro.app.ai.matchSubject
@@ -408,7 +409,7 @@ fun CameraScreen(state: AppState) {
         }
     }.orEmpty()
     // The ring shows for the first open position step even while the subject is momentarily lost (no dot then).
-    val ringStep = steps.indexOfFirst { !it.done && it.move.check == CheckBy.Frame }
+    val ringStep = steps.indexOfFirst { !it.done }.takeIf { it >= 0 && steps[it].move.check == CheckBy.Frame } ?: -1
     val ringMove = steps.getOrNull(ringStep)?.move
     val allDone = coach != null && (coach!!.ready || (steps.isNotEmpty() && steps.all { it.done }))
     // Set when the person closes the card (✕): quick tips for the rest of this scene.
@@ -493,6 +494,8 @@ fun CameraScreen(state: AppState) {
             GridLayer(state.tipsOn && !dark, Modifier.fillMaxSize())
             ThingsLayer(if (pick != null) things.take(slots) else things, marksVisible && !photographerOn, Modifier.fillMaxSize())
             GuideLayer(guide, slots, guideAlignment, points, guideVisible && !photographerOn, Modifier.fillMaxSize())
+            // The photographer's composition frame (thirds, triangle, spiral… from the reference images), drawn faintly.
+            coach?.advice?.frame?.let { f -> GuideLayer(f, frameSlots(f), null, emptyList(), true, Modifier.fillMaxSize()) }
             if (!photographerOn) EdgeLayer(shown.main, shown.edge, Modifier.fillMaxSize())
             else if (allDone) EdgeLayer(coachSubject, EdgeState.Right, Modifier.fillMaxSize())
             CoachLayer(
@@ -538,6 +541,7 @@ fun CameraScreen(state: AppState) {
             if (coach == null && photographerOn) FindingCard(cardSpot)
             coach?.let {
                 CoachCard(
+                    frame = it.advice.frame?.label, frameWhy = it.advice.frameWhy,
                     steps = steps, ready = allDone, checking = busy, error = checkError,
                     onClose = { closeCoach(); closedFor = scanStart }, modifier = cardSpot,
                 )

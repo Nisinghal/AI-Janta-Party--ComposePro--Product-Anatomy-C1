@@ -5,6 +5,9 @@ import android.graphics.RectF
 import android.util.Base64
 import android.util.Log
 import com.composepro.app.BuildConfig
+import com.composepro.app.guide.Guide
+import com.composepro.app.guide.targets
+import kotlin.math.hypot
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
@@ -42,7 +45,24 @@ data class Move(
 )
 
 /** What the photographer says about one frame. [subjectBox] is where the subject is now (fractions of the frame), if it said. */
-data class Advice(val seen: String, val subject: String, val ready: Boolean, val moves: List<Move>, val subjectBox: RectF?)
+data class Advice(
+    val seen: String,
+    val subject: String,
+    val ready: Boolean,
+    val moves: List<Move>,
+    val subjectBox: RectF?,
+    /** The composition frame from the reference images that this shot is built on, drawn over the camera view. */
+    val frame: Guide? = null,
+    val frameWhy: String = "",
+)
+
+/** How many spots each frame is laid out with, so the drawn spots and the photographer's targets are the same ones. */
+fun frameSlots(g: Guide): Int = when (g) {
+    Guide.Grid -> 4
+    Guide.Circle -> 5
+    Guide.Spiral -> 4
+    else -> 3
+}
 
 /** The photographer's second look: which moves are done, a short note for each, and whether it's ready. */
 data class Review(val done: List<Boolean>, val notes: List<String>, val ready: Boolean, val next: String)
@@ -137,6 +157,21 @@ object Photographer {
         Give 2 or 3 moves, most important first; each action at most 12 words, each reason at most 15 words.
         One idea per move, so each can be checked on its own.
 
+        First choose ONE composition frame for this shot, from the ones the person learned from (their reference images
+        of café and food shots, extended to any object). Each frame has fixed spots, as (x, y) with 0 = left/top:
+        - "thirds": the 3x3 grid; cross points (0.33, 0.33), (0.67, 0.33), (0.33, 0.67), (0.67, 0.67). One subject a
+          little off-centre; animals with space on the side they face; tall things; landscapes on a line.
+        - "centre": one spot (0.5, 0.45). One strong, round or symmetrical subject, especially from straight above.
+        - "front_back": big thing in front (0.42, 0.63), smaller thing behind (0.62, 0.36). Two things, one bigger.
+        - "diagonal": spots along the corner-to-corner line (0.29, 0.33), (0.5, 0.5), (0.71, 0.67). Two or three things.
+        - "triangle": (0.5, 0.3), (0.28, 0.68), (0.72, 0.68). Exactly three things.
+        - "grid": rows of spots (0.33, 0.35), (0.67, 0.35), (0.33, 0.63), (0.67, 0.63). Many of the same thing.
+        - "circle": hero in the middle (0.5, 0.48), the rest around it. One big thing with smaller ones.
+        - "spiral": golden spiral; the hero in its eye (0.62, 0.40), others along the curve. A busy spread.
+        Set frame, and frame_why in at most 10 plain words ("One subject looks more alive a little off-centre").
+        Every "frame" move below must put its target_x/target_y on one of that frame's spots, and the action should say
+        it in plain words ("Put the statue on the left cross of the grid", "Move the phone so the cup is in the middle").
+
         For each move say how it can be checked:
         - check "angle" if the move is only about the phone's height or tilt; set angle to "above" (phone flat, looking
           straight down), "diner" (tilted, like sitting at a table) or "eye" (phone upright at the subject's height).
@@ -164,6 +199,8 @@ object Photographer {
           "seen":{"type":"STRING","description":"What is in the frame, in one plain sentence (max 20 words)"},
           "subject":{"type":"STRING","description":"The subject the photo should be about, in a few words"},
           "ready":{"type":"BOOLEAN","description":"True only if the frame is already a good photo and needs no moves"},
+          "frame":{"type":"STRING","enum":["thirds","centre","front_back","diagonal","triangle","grid","circle","spiral"]},
+          "frame_why":{"type":"STRING","description":"Why this frame, max 10 plain words"},
           "subject_box":{"type":"ARRAY","items":{"type":"INTEGER"},"description":"Where the subject is now: [ymin, xmin, ymax, xmax], 0 to 1000"},
           "moves":{"type":"ARRAY","description":"2 or 3 moves, most important first; empty if ready","items":{
             "type":"OBJECT","properties":{
@@ -175,7 +212,7 @@ object Photographer {
               "target_y":{"type":"NUMBER","description":"Only when check is frame: 0 top to 1 bottom"},
               "size":{"type":"NUMBER","description":"Only when check is frame: share of the picture's height the subject should fill"}},
             "required":["action","why","check"]}}},
-         "required":["seen","subject","ready","moves"]}
+         "required":["seen","subject","ready","frame","moves"]}
         """,
     )
 
@@ -315,6 +352,17 @@ object Photographer {
             // Gemini's own box order: [ymin, xmin, ymax, xmax] on a 0–1000 scale.
             RectF(b.getDouble(1).toFloat() / 1000f, b.getDouble(0).toFloat() / 1000f, b.getDouble(3).toFloat() / 1000f, b.getDouble(2).toFloat() / 1000f)
         }
+        val frame = when (o.optString("frame")) {
+            "thirds" -> Guide.Thirds; "centre" -> Guide.Centre; "front_back" -> Guide.FrontBack; "diagonal" -> Guide.Diagonal
+            "triangle" -> Guide.Triangle; "grid" -> Guide.Grid; "circle" -> Guide.Circle; "spiral" -> Guide.Spiral; else -> null
+        }
+        // Targets sit exactly on the drawn frame: snap each to the frame's nearest spot when it's close.
+        val spots = frame?.let { targets(it, frameSlots(it)) }.orEmpty()
+        fun snap(x: Float?, y: Float?): Pair<Float?, Float?> {
+            if (x == null || y == null || spots.isEmpty()) return x to y
+            val near = spots.minBy { (it.x - x) * (it.x - x) + (it.y - y) * (it.y - y) }
+            return if (hypot(near.x - x, near.y - y) < 0.2f) near.x to near.y else x to y
+        }
         Advice(
             seen = o.optString("seen"),
             subject = o.optString("subject"),
@@ -324,7 +372,7 @@ object Photographer {
                 val check = when (m.optString("check")) { "angle" -> CheckBy.Angle; "frame" -> CheckBy.Frame; else -> CheckBy.Other }
                 val angle = when (m.optString("angle")) { "above" -> ShotAngle.Above; "diner" -> ShotAngle.Diner; "eye" -> ShotAngle.Eye; else -> null }
                 fun frac(key: String) = if (m.has(key)) m.optDouble(key).toFloat().takeIf { it in 0f..1f } else null
-                val tx = frac("target_x"); val ty = frac("target_y")
+                val (tx, ty) = snap(frac("target_x"), frac("target_y"))
                 Move(
                     action = m.optString("action"),
                     why = m.optString("why"),
@@ -338,6 +386,8 @@ object Photographer {
                 )
             }.filter { it.action.isNotBlank() }.take(3),
             subjectBox = box,
+            frame = frame,
+            frameWhy = o.optString("frame_why"),
         )
     } catch (e: Exception) {
         null

@@ -50,7 +50,7 @@ class Tracker {
         tpl = sample(then, cx, cy, bw, bh) ?: return false.also { locked = false }
         locked = true
         // The answer arrives seconds after the frame was taken, so first look for it across the whole frame.
-        val coarse = best(now, 0f, 0f, step = 3, radiusX = w, radiusY = h, scales = floatArrayOf(0.6f, 0.75f, 0.9f, 1f, 1.15f, 1.35f, 1.6f), wholeFrame = true)
+        val coarse = best(now, cx, cy, step = 3, radiusX = w, radiusY = h, scales = floatArrayOf(0.6f, 0.75f, 0.9f, 1f, 1.15f, 1.35f, 1.6f), wholeFrame = true, pull = 0.6f)
         lastScore = coarse?.score ?: -1f
         if (coarse == null || coarse.score < START_SCORE) { locked = false; return false }
         apply(coarse)
@@ -78,7 +78,12 @@ class Tracker {
         bw = (bw * m.scale).coerceIn(6f, w.toFloat()); bh = (bh * m.scale).coerceIn(6f, h.toFloat())
     }
 
-    private fun best(g: Gray, x0: Float, y0: Float, step: Int, radiusX: Int, radiusY: Int, scales: FloatArray, wholeFrame: Boolean = false): Match? {
+    /**
+     * Best match around (x0, y0). With [pull] > 0, matches far from (x0, y0) are marked down, so a look-alike patch
+     * across the frame doesn't win over the subject itself (it locked onto the keyboard once, 2026-10-06).
+     */
+    private fun best(g: Gray, x0: Float, y0: Float, step: Int, radiusX: Int, radiusY: Int, scales: FloatArray, wholeFrame: Boolean = false, pull: Float = 0f): Match? {
+        var bestRank = -10f
         var bestM: Match? = null
         for (s in scales) {
             val sw = bw * s; val sh = bh * s
@@ -87,7 +92,9 @@ class Tracker {
             for (y in ys step step) for (x in xs step step) {
                 val patch = sample(g, x.toFloat(), y.toFloat(), sw, sh) ?: continue
                 val score = ncc(patch)
-                if (bestM == null || score > bestM.score) bestM = Match(x.toFloat(), y.toFloat(), s, score)
+                val dist = kotlin.math.hypot((x - x0) / g.w, (y - y0) / g.h)
+                val rank = score - pull * dist
+                if (bestM == null || rank > bestRank) { bestM = Match(x.toFloat(), y.toFloat(), s, score); bestRank = rank }
             }
         }
         return bestM
