@@ -12,6 +12,11 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
 import java.net.URL
+import java.util.concurrent.Callable
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ExecutorCompletionService
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -55,31 +60,60 @@ sealed interface Reply<out T> {
  */
 object Photographer {
     /**
-     * Tried in order. The newest Flash is often "experiencing high demand" (503) for free-plan users
-     * (seen 2026-10-06), so a busy, missing or rate-limited model falls through to the next one.
-     * The "-latest" aliases move forward with each Google release.
+     * Raced: the same request goes to all of these at once and the first good answer wins. On the free plan one
+     * model can sit in Google's queue for 20+ s (gemini-3.5-flash-lite took 22–23 s per answer, phone log 2026-10-06)
+     * while another answers in a few; each model has its own free limit, so racing stays free.
+     * The "-latest" alias moves forward with each Google release; the dated ones are older, often quieter models.
      */
-    private val MODELS = listOf("gemini-flash-lite-latest", "gemini-flash-latest", "gemini-2.5-flash")
+    @Volatile private var MODELS = listOf("gemini-flash-lite-latest", "gemini-flash-latest")
+    @Volatile private var warmed = false
 
     /**
-     * The model that answered last time is tried first, so a busy one doesn't cost a round trip on every ask.
-     * Flash-Lite leads the list: it's the quickest and rarely busy (speed matters most, user feedback 2026-10-06).
+     * Call when the camera opens. Opens the connection to Google early (the first request on mobile data spent
+     * ~7.5 s just connecting; later ones ~1.5 s) and asks which models this key can use, since older ones get
+     * retired (gemini-2.5/2.0-flash-lite answered 404, 2026-10-06). Up to 3 Flash models are then raced.
      */
-    @Volatile private var lastGood: String? = null
+    fun warmUp() {
+        if (!hasKey || warmed) return
+        warmed = true
+        val conn = (URL("https://generativelanguage.googleapis.com/v1beta/models?pageSize=200").openConnection() as HttpURLConnection).apply {
+            connectTimeout = 15_000
+            readTimeout = 15_000
+            setRequestProperty("x-goog-api-key", BuildConfig.GEMINI_API_KEY)
+        }
+        try {
+            if (conn.responseCode !in 200..299) return
+            val list = JSONObject(conn.inputStream.bufferedReader().use { it.readText() }).optJSONArray("models") ?: return
+            val skip = listOf("image", "tts", "live", "audio", "embedding", "exp", "robotics", "computer")
+            val usable = (0 until list.length()).map { list.getJSONObject(it) }.filter { m ->
+                val methods = m.optJSONArray("supportedGenerationMethods")?.toString().orEmpty()
+                val name = m.optString("name").removePrefix("models/")
+                "generateContent" in methods && "flash" in name && skip.none { it in name }
+            }.map { it.optString("name").removePrefix("models/") }
+            // Lite first (quickest), then the newest version number.
+            fun version(n: String) = Regex("""\d+(\.\d+)?""").find(n)?.value?.toFloatOrNull() ?: 0f
+            val picked = usable.filter { "latest" !in it }.sortedWith(compareBy<String>({ "lite" !in it }, { -version(it) })).take(2)
+            MODELS = (listOf("gemini-flash-lite-latest") + picked).distinct().take(3)
+            Log.i("ComposePro", "Gemini models to race: $MODELS (of ${usable.size} usable)")
+        } catch (e: Exception) {
+            Log.w("ComposePro", "Gemini warm-up failed: ${e.message}")
+        }
+        // No disconnect(): the reply was read in full, so the connection goes back to Android's pool for the ask.
+    }
 
     /**
-     * Gemini's newer models quietly "think" before answering, which made each answer take 4–18 s (median ~7 s,
-     * phone log 2026-10-06). Two or three photo steps don't need much, so the lightest setting the model accepts is
-     * used. Models differ in what they accept ("thinkingBudget: 0" was rejected outright with a bare
-     * "invalid argument"), so each option is tried in turn on a 400 and the one that works is kept.
+     * Gemini's newer models quietly "think" before answering, which adds seconds. Two or three photo steps don't need
+     * much, so each model gets the lightest setting it accepts. Models differ ("thinkingBudget: 0" was rejected with a
+     * bare "invalid argument"), so on a 400 the next option is tried and the one that works is kept for that model.
      */
     private val THINKING = listOf(
         JSONObject().put("thinkingLevel", "minimal"),
-        JSONObject().put("thinkingLevel", "low"),
         JSONObject().put("thinkingBudget", 0),
+        JSONObject().put("thinkingLevel", "low"),
         null,
     )
-    @Volatile private var thinking = 0
+    private val thinkingFor = ConcurrentHashMap<String, Int>()
+    private val pool = Executors.newCachedThreadPool { r -> Thread(r, "gemini").apply { isDaemon = true } }
     private fun endpoint(model: String) = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"
 
     private val PERSONA = """
@@ -96,7 +130,9 @@ object Photographer {
 
         Give only moves they can do in the next 10 seconds: move or tilt the phone, step closer or back, change height,
         turn toward or away from the light, move or remove small things in front of them, change what is behind the
-        subject. Never suggest editing apps, filters, buying gear or changing camera settings.
+        subject. Never suggest editing apps, filters, buying gear, changing camera settings or tapping the screen.
+        The frame may be a little blurred because the phone is moving while they aim; ignore that kind of blur.
+        Only mention people if you can clearly see a person.
         Be specific to THIS frame: name the real things you see ("the blue bowl", "the bedsheet behind the vase").
         Give 2 or 3 moves, most important first; each action at most 12 words, each reason at most 15 words.
         One idea per move, so each can be checked on its own.
@@ -174,10 +210,27 @@ object Photographer {
         }
     }
 
-    /** Sends one frame + text, trying each model in turn. Returns the JSON text of the answer. */
+    /** Sends one frame + text to every model at once and returns the first good answer (its JSON text). */
     private fun generate(system: String, schema: JSONObject, frame: Bitmap, text: String): Reply<String> {
         if (!hasKey) return Reply.Failed("The photographer needs a Gemini API key. Add it to local.properties and rebuild the app.")
         val image = toJpegBase64(frame)
+        val started = System.currentTimeMillis()
+        val done = ExecutorCompletionService<Reply<String>>(pool)
+        MODELS.forEach { model -> done.submit(Callable { askOne(model, system, schema, image, text, started) }) }
+        var failure: Reply<String> = Reply.Failed("The photographer is busy right now. Try again in a moment.")
+        repeat(MODELS.size) {
+            val r = try { done.poll(60, TimeUnit.SECONDS)?.get() } catch (e: Exception) { null }
+                ?: return Reply.Failed("The photographer took too long. Try again.")
+            if (r is Reply.Ok) return r   // the slower ones finish in the background and are ignored
+            if (r is Reply.Failed && (it == 0 || r.isKeyProblem())) failure = r
+        }
+        return failure
+    }
+
+    private fun Reply<String>.isKeyProblem() = this is Reply.Failed && ("API key" in message)
+
+    /** One model: post, stepping through thinking settings it refuses. Never throws. */
+    private fun askOne(model: String, system: String, schema: JSONObject, image: String, text: String, started: Long): Reply<String> {
         fun body(): String = JSONObject()
             .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", system))))
             .put(
@@ -194,46 +247,38 @@ object Photographer {
             .put(
                 "generationConfig",
                 JSONObject().put("responseMimeType", "application/json").put("responseSchema", schema).apply {
-                    THINKING[thinking]?.let { put("thinkingConfig", it) }
+                    THINKING[thinkingFor[model] ?: 0]?.let { put("thinkingConfig", it) }
                 },
             )
             .toString()
-
-        var last: Reply<String> = Reply.Failed("The photographer is busy right now. Try again in a moment.")
-        for (model in (listOfNotNull(lastGood) + MODELS).distinct()) {
-            val started = System.currentTimeMillis()
-            var (code, reply) = try {
-                post(model, body())
-            } catch (e: SocketTimeoutException) {
-                return Reply.Failed("The photographer took too long. Try again.")
-            } catch (e: IOException) {
-                return Reply.Failed("Couldn't reach the photographer. Check your internet and try again.")
-            }
-            // A bare "invalid argument" (not a bad key) means this model won't take the thinking setting: step to the next one.
-            while (code == 400 && "API_KEY_INVALID" !in reply && thinking < THINKING.lastIndex) {
-                thinking++
-                Log.w("ComposePro", "Gemini $model refused a thinking setting; trying ${THINKING[thinking] ?: "none"}")
-                val retry = try { post(model, body()) } catch (e: IOException) { return Reply.Failed("Couldn't reach the photographer. Check your internet and try again.") }
+        return try {
+            var (code, reply) = post(model, body())
+            // A bare "invalid argument" (not a bad key) means this model won't take the thinking setting: try the next.
+            while (code == 400 && "API_KEY_INVALID" !in reply && (thinkingFor[model] ?: 0) < THINKING.lastIndex) {
+                thinkingFor[model] = (thinkingFor[model] ?: 0) + 1
+                val retry = post(model, body())
                 code = retry.first; reply = retry.second
             }
+            val ms = System.currentTimeMillis() - started
             if (code in 200..299) {
-                lastGood = model
                 val answer = answerText(reply)
                 val version = try { JSONObject(reply).optString("modelVersion") } catch (e: Exception) { "" }
-                Log.i("ComposePro", "Gemini $model ($version, thinking ${THINKING[thinking] ?: "default"}) answered in ${System.currentTimeMillis() - started} ms: ${answer ?: reply.take(400)}")
-                return answer?.let { Reply.Ok(it) } ?: Reply.Failed("The photographer couldn't answer this time. Try again.")
+                Log.i("ComposePro", "Gemini $model ($version, thinking ${THINKING[thinkingFor[model] ?: 0] ?: "default"}) answered in $ms ms: ${answer ?: reply.take(300)}")
+                answer?.let { Reply.Ok(it) } ?: Reply.Failed("The photographer couldn't answer this time. Try again.")
+            } else {
+                Log.w("ComposePro", "Gemini $model error $code after $ms ms: ${reply.take(200)}")
+                when {
+                    code == 400 && "API_KEY_INVALID" in reply -> Reply.Failed("The Gemini API key isn't working. Check it in local.properties.")
+                    code == 403 -> Reply.Failed("The Gemini API key isn't allowed to do this. Check it in Google AI Studio.")
+                    code == 429 -> Reply.Failed("Too many asks for the free plan right now. Wait a minute and try again.")
+                    else -> Reply.Failed("The photographer is busy right now. Try again in a moment.")
+                }
             }
-            Log.w("ComposePro", "Gemini $model error $code after ${System.currentTimeMillis() - started} ms: ${reply.take(200)}")
-            when {
-                code == 400 && "API_KEY_INVALID" in reply -> return Reply.Failed("The Gemini API key isn't working. Check it in local.properties.")
-                code == 403 -> return Reply.Failed("The Gemini API key isn't allowed to do this. Check it in Google AI Studio.")
-                // Busy, gone, or this model's free limit used up: try the next model.
-                code == 429 -> last = Reply.Failed("Too many asks for the free plan right now. Wait a minute and try again.")
-                code >= 500 || code == 404 -> last = Reply.Failed("The photographer is busy right now. Try again in a moment.")
-                else -> return Reply.Failed("The photographer had a problem ($code). Try again.")
-            }
+        } catch (e: SocketTimeoutException) {
+            Reply.Failed("The photographer took too long. Try again.")
+        } catch (e: IOException) {
+            Reply.Failed("Couldn't reach the photographer. Check your internet and try again.")
         }
-        return last
     }
 
     /** One POST; returns the status code and the body (the error body when it failed). */
@@ -246,14 +291,11 @@ object Photographer {
             setRequestProperty("Content-Type", "application/json")
             setRequestProperty("x-goog-api-key", BuildConfig.GEMINI_API_KEY)
         }
-        try {
-            conn.outputStream.use { it.write(json.toByteArray()) }
-            val code = conn.responseCode
-            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
-            return code to (stream?.bufferedReader()?.use { it.readText() }.orEmpty())
-        } finally {
-            conn.disconnect()
-        }
+        // Reading the reply in full (and not calling disconnect()) lets Android reuse the connection next time.
+        conn.outputStream.use { it.write(json.toByteArray()) }
+        val code = conn.responseCode
+        val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+        return code to (stream?.bufferedReader()?.use { it.readText() }.orEmpty())
     }
 
     /** Gemini puts the JSON answer as text in the first candidate. Null if it was blocked. */

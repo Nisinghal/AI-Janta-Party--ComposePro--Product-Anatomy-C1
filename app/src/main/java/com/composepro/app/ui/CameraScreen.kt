@@ -179,6 +179,8 @@ fun CameraScreen(state: AppState) {
         scope.launch { lastPhoto = withContext(Dispatchers.IO) { PhotoStore.list(context).firstOrNull() } }
     }
     LaunchedEffect(toast) { if (toast != null) { delay(2600); toast = null } }
+    // Open the line to the photographer while the camera starts, so the first ask doesn't wait on connecting.
+    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { Photographer.warmUp() } }
     LaunchedEffect(Unit) { while (true) { delay(200); now = SystemClock.elapsedRealtime() } }
 
     // ---- 1. Look for 3 seconds, then pick a guide from what was seen and keep it (user decision, 2026-10-05) ----
