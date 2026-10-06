@@ -10,12 +10,18 @@ import kotlin.math.min
 
 /**
  * The photographer's plan in progress. While it's on screen, live tips are hidden (one voice at a time,
- * user feedback 2026-10-06). [checked] and [notes] come from the last "Check my shot"; [subjectId] is the
+ * user feedback 2026-10-06). [checked] and [notes] come from the photographer's last automatic look; [subjectId] is the
  * on-phone tracked thing that matches the photographer's subject, so frame moves can be checked live.
  */
 data class Coach(
     val advice: Advice,
     val subjectId: Int?,
+    /**
+     * Per step: can the phone's own check be believed? Not if it already passed when the advice arrived: the
+     * photographer still asked for it, so the phone is measuring the wrong thing (e.g. "lower the phone" is about
+     * height, the tilt sensor only knows angle; phone test 2026-10-06). Those steps wait for the photographer's look.
+     */
+    val liveTrusted: List<Boolean> = List(advice.moves.size) { true },
     val checked: List<Boolean> = List(advice.moves.size) { false },
     val notes: List<String> = List(advice.moves.size) { "" },
     val next: String? = null,

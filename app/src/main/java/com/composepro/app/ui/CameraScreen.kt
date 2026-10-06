@@ -288,13 +288,17 @@ fun CameraScreen(state: AppState) {
             "The phone's own detector thinks it sees: ${if (things.isEmpty()) "nothing it recognises" else describe(things)} (it can be wrong)."
     }
 
+    var lastReqAt by remember { mutableLongStateOf(0L) }
+
     fun askPhotographer() {
         if (busy) return
-        val bmp = previewView.bitmap ?: run { toast = "The camera isn't ready yet."; return }
+        val bmp = previewView.bitmap ?: return
         val seenNow = things
+        val tiltNow = tilt
         val ctx = phoneContext() + " What should this person do to take a better photo of this?"
         busy = true
         askError = null
+        lastReqAt = SystemClock.elapsedRealtime()
         scope.launch {
             val r = withContext(Dispatchers.IO) { Photographer.ask(bmp, ctx) }
             busy = false
@@ -303,9 +307,14 @@ fun CameraScreen(state: AppState) {
                     val subject = matchSubject(r.value.subjectBox, seenNow)
                     subjectBox = subject?.box ?: r.value.subjectBox
                     streak.clear(); liveOk.clear(); checkError = null
-                    coach = Coach(r.value, subject?.id)
+                    val trusted = r.value.moves.map { liveCheck(it, tiltNow, subject) != true }
+                    coach = Coach(r.value, subject?.id, liveTrusted = trusted)
                 }
-                is Reply.Failed -> askError = r.message
+                is Reply.Failed -> {
+                    // No photographer (offline, busy, no key): the quick on-phone tips carry on instead.
+                    if (askError == null) toast = "The photographer isn't available right now, so here are quick tips."
+                    askError = r.message
+                }
             }
         }
     }
@@ -313,15 +322,21 @@ fun CameraScreen(state: AppState) {
     fun checkShot() {
         val c = coach ?: return
         if (busy) return
-        val bmp = previewView.bitmap ?: run { toast = "The camera isn't ready yet."; return }
+        val bmp = previewView.bitmap ?: return
         val ctx = phoneContext()
         busy = true
         checkError = null
+        lastReqAt = SystemClock.elapsedRealtime()
         scope.launch {
             val r = withContext(Dispatchers.IO) { Photographer.check(bmp, c.advice, ctx) }
             busy = false
             when (r) {
-                is Reply.Ok -> coach = coach?.copy(checked = r.value.done, notes = r.value.notes, next = r.value.next, ready = r.value.ready)
+                is Reply.Ok -> coach = coach?.let { now ->
+                    now.copy(
+                        checked = now.checked.mapIndexed { i, was -> was || r.value.done.getOrElse(i) { false } },
+                        notes = r.value.notes, next = r.value.next, ready = r.value.ready,
+                    )
+                }
                 is Reply.Failed -> checkError = r.message
             }
         }
@@ -345,13 +360,51 @@ fun CameraScreen(state: AppState) {
     }
     val steps = coach?.let { c ->
         c.advice.moves.mapIndexed { i, m ->
-            val live = when (m.check) { CheckBy.Angle -> tilt != Tilt.Unknown; CheckBy.Frame -> coachSubject != null; CheckBy.Other -> false }
+            val measurable = when (m.check) { CheckBy.Angle -> tilt != Tilt.Unknown; CheckBy.Frame -> coachSubject != null; CheckBy.Other -> false }
+            val live = measurable && c.liveTrusted.getOrElse(i) { true }
             StepView(m, done = if (live) liveOk[i] == true else c.checked.getOrElse(i) { false }, live = live, note = c.notes.getOrElse(i) { "" })
         }
     }.orEmpty()
     val ringStep = steps.indexOfFirst { !it.done && it.live && it.move.check == CheckBy.Frame }
     val ringMove = steps.getOrNull(ringStep)?.move
-    val photographerOn = coach != null || busy || askError != null
+    val allDone = coach != null && (coach!!.ready || (steps.isNotEmpty() && steps.all { it.done }))
+    val photographerOn = coach != null || (busy && askError == null)
+
+    // ---- Automatic (user decision, 2026-10-06): no buttons. After the 3-second look the photographer is asked by
+    // itself; steps the phone can't measure are re-checked by themselves once the person has changed something and
+    // holds still. Requests are spaced out to stay inside Gemini's free limits. A new look clears the old plan. ----
+    val auto = state.tipsOn && Photographer.hasKey
+    var askedFor by remember { mutableLongStateOf(-1L) }
+    var scene by remember { mutableStateOf<List<Int>>(emptyList()) }
+    var sceneChangedAt by remember { mutableLongStateOf(0L) }
+    var sceneAtCheck by remember { mutableStateOf<List<Int>>(emptyList()) }
+    LaunchedEffect(pick) { if (pick == null) { closeCoach(); askError = null } }
+    LaunchedEffect(frame) {
+        // A rough fingerprint of what's in view: count, where the subject is, brightness, phone angle.
+        val f = frame ?: return@LaunchedEffect
+        val s = coachSubject
+        val next = listOf(f.things.size, s?.let { (it.cx * 8).toInt() } ?: -1, s?.let { (it.cy * 8).toInt() } ?: -1, (f.meanY / 15).toInt(), (tilt.offFlatDeg / 12).toInt())
+        if (next != scene) { scene = next; sceneChangedAt = SystemClock.elapsedRealtime() }
+    }
+    LaunchedEffect(now) {
+        if (!auto || busy || dark) return@LaunchedEffect
+        val p = pick ?: return@LaunchedEffect
+        val c = coach
+        if (c == null) {
+            val firstAsk = askedFor != pickedAt
+            val retry = askError != null && now - lastReqAt > 30_000
+            if (firstAsk || retry) { askedFor = pickedAt; askPhotographer() }
+            return@LaunchedEffect
+        }
+        if (allDone || p.count == 0) return@LaunchedEffect
+        if (steps.none { !it.done && !it.live }) return@LaunchedEffect
+        val sinceReq = now - lastReqAt
+        val settled = now - sceneChangedAt >= 1500
+        if (sinceReq >= 6_000 && ((scene != sceneAtCheck && settled) || sinceReq >= 15_000)) {
+            sceneAtCheck = scene
+            checkShot()
+        }
+    }
 
     fun notRight() {
         val main = shown.main
@@ -387,6 +440,7 @@ fun CameraScreen(state: AppState) {
             ThingsLayer(if (pick != null) things.take(slots) else things, marksVisible && !photographerOn, Modifier.fillMaxSize())
             GuideLayer(guide, slots, guideAlignment, points, guideVisible && !photographerOn, Modifier.fillMaxSize())
             if (!photographerOn) EdgeLayer(shown.main, shown.edge, Modifier.fillMaxSize())
+            else if (allDone) EdgeLayer(coachSubject, EdgeState.Right, Modifier.fillMaxSize())
             CoachLayer(
                 target = ringMove?.let { P(it.targetX ?: 0.5f, it.targetY ?: 0.5f) },
                 subject = coachSubject?.let { P(it.cx, it.cy) },
@@ -404,7 +458,13 @@ fun CameraScreen(state: AppState) {
                 modifier = top,
             )
             InfoCapsule(
-                visible = explaining && !dark && !photographerOn,
+                visible = busy && coach == null && !dark,
+                line1 = "Looking like a photographer…",
+                line2 = "Working out how to make ${if (things.isEmpty()) "this" else describe(things.take(slots))} look its best.",
+                modifier = top,
+            )
+            InfoCapsule(
+                visible = explaining && !dark && !photographerOn && !auto,
                 line1 = pick?.let { "I see ${it.seen}. Let's use ${it.guide.label}." } ?: "",
                 line2 = pick?.why ?: "",
                 modifier = top,
@@ -420,26 +480,14 @@ fun CameraScreen(state: AppState) {
             }
             coach?.let { c ->
                 CoachCard(
-                    seen = c.advice.seen, steps = steps, next = c.next, ready = c.ready, error = checkError,
+                    seen = c.advice.seen, steps = steps, next = c.next, ready = allDone, checking = busy, error = checkError,
                     onClose = ::closeCoach, modifier = Modifier.align(Alignment.BottomCenter).padding(CPSpace.S2),
                 )
             }
-            AskErrorCard(askError, onRetry = ::askPhotographer, onClose = { askError = null }, modifier = Modifier.align(Alignment.BottomCenter).padding(CPSpace.S2))
             toast?.let { GlassToast(it, Modifier.align(Alignment.BottomCenter).padding(bottom = CPSpace.S3)) }
         }
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
           Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            AskButton(
-                label = when {
-                    busy && coach == null -> "Looking like a photographer…"
-                    busy -> "Checking your shot…"
-                    coach == null -> "Ask photographer"
-                    else -> "Check my shot"
-                },
-                busy = busy, enabled = !unavailable,
-                onClick = { if (coach == null) askPhotographer() else checkShot() },
-                modifier = Modifier.padding(bottom = CPSpace.S3),
-            )
             Row(Modifier.fillMaxWidth().padding(horizontal = CPSpace.S4), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     Modifier.size(CPSpace.Tap).clip(CPShape.Thumb).border(2.dp, CP.OnDark.copy(alpha = 0.85f), CPShape.Thumb)
