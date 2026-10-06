@@ -2,6 +2,7 @@ package com.composepro.app.ai
 
 import android.graphics.Bitmap
 import android.util.Base64
+import android.util.Log
 import com.composepro.app.BuildConfig
 import org.json.JSONArray
 import org.json.JSONObject
@@ -31,9 +32,13 @@ sealed interface AskResult {
  * Nothing is sent otherwise. Plain HTTPS + Android's built-in JSON, so no extra library.
  */
 object Photographer {
-    /** Google's alias for its newest Flash model on the free tier; it moves forward with each release. */
-    private const val MODEL = "gemini-flash-latest"
-    private const val ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/$MODEL:generateContent"
+    /**
+     * Tried in order. The newest Flash is often "experiencing high demand" (503) for free-plan users
+     * (seen 2026-10-06), so a busy, missing or rate-limited model falls through to the next one.
+     * The "-latest" aliases move forward with each Google release.
+     */
+    private val MODELS = listOf("gemini-flash-latest", "gemini-flash-lite-latest", "gemini-2.5-flash")
+    private fun endpoint(model: String) = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"
 
     private val SYSTEM = """
         You are a friendly professional photographer standing next to an everyday person who is about to take a photo
@@ -92,7 +97,36 @@ object Photographer {
             )
             .put("generationConfig", JSONObject().put("responseMimeType", "application/json").put("responseSchema", SCHEMA))
 
-        val conn = (URL(ENDPOINT).openConnection() as HttpURLConnection).apply {
+        var last: AskResult = AskResult.Failed("The photographer is busy right now. Try again in a moment.")
+        for (model in MODELS) {
+            val (code, text) = try {
+                post(model, body.toString())
+            } catch (e: SocketTimeoutException) {
+                return AskResult.Failed("The photographer took too long. Try again.")
+            } catch (e: IOException) {
+                return AskResult.Failed("Couldn't reach the photographer. Check your internet and try again.")
+            }
+            if (code in 200..299) {
+                val advice = parse(text)
+                Log.i("ComposePro", "Gemini $model answered: ${advice ?: text.take(400)}")
+                return advice?.let { AskResult.Ok(it) } ?: AskResult.Failed("The photographer couldn't answer this time. Try again.")
+            }
+            Log.w("ComposePro", "Gemini $model error $code: ${text.take(300)}")
+            when {
+                code == 400 && "API_KEY_INVALID" in text -> return AskResult.Failed("The Gemini API key isn't working. Check it in local.properties.")
+                code == 403 -> return AskResult.Failed("The Gemini API key isn't allowed to do this. Check it in Google AI Studio.")
+                // Busy, gone, or this model's free limit used up: try the next model.
+                code == 429 -> last = AskResult.Failed("Too many asks for the free plan right now. Wait a minute and try again.")
+                code >= 500 || code == 404 -> last = AskResult.Failed("The photographer is busy right now. Try again in a moment.")
+                else -> return AskResult.Failed("The photographer had a problem ($code). Try again.")
+            }
+        }
+        return last
+    }
+
+    /** One POST; returns the status code and the body (the error body when it failed). */
+    private fun post(model: String, json: String): Pair<Int, String> {
+        val conn = (URL(endpoint(model)).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 15_000
             readTimeout = 45_000
@@ -100,29 +134,11 @@ object Photographer {
             setRequestProperty("Content-Type", "application/json")
             setRequestProperty("x-goog-api-key", BuildConfig.GEMINI_API_KEY)
         }
-        return try {
-            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+        try {
+            conn.outputStream.use { it.write(json.toByteArray()) }
             val code = conn.responseCode
-            if (code !in 200..299) {
-                val err = conn.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
-                return AskResult.Failed(
-                    when {
-                        code == 400 && "API_KEY_INVALID" in err -> "The Gemini API key isn't working. Check it in local.properties."
-                        code == 403 -> "The Gemini API key isn't allowed to do this. Check it in Google AI Studio."
-                        code == 429 -> "Too many asks for the free plan right now. Wait a minute and try again."
-                        code >= 500 -> "The photographer is busy right now. Try again in a moment."
-                        else -> "The photographer had a problem ($code). Try again."
-                    },
-                )
-            }
-            val reply = conn.inputStream.bufferedReader().use { it.readText() }
-            parse(reply)?.let { AskResult.Ok(it) } ?: AskResult.Failed("The photographer couldn't answer this time. Try again.")
-        } catch (e: SocketTimeoutException) {
-            AskResult.Failed("The photographer took too long. Try again.")
-        } catch (e: IOException) {
-            AskResult.Failed("Couldn't reach the photographer. Check your internet and try again.")
-        } catch (e: Exception) {
-            AskResult.Failed("Something went wrong asking the photographer. Try again.")
+            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+            return code to (stream?.bufferedReader()?.use { it.readText() }.orEmpty())
         } finally {
             conn.disconnect()
         }
