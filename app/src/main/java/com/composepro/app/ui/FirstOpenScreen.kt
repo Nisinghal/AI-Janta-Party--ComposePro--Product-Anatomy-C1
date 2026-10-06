@@ -24,7 +24,7 @@ fun FirstOpenScreen(refused: Boolean, asking: Boolean, onAllow: () -> Unit, onOp
         verticalArrangement = Arrangement.spacedBy(CPSpace.S3),
     ) {
         Box(Modifier.weight(1f).fillMaxWidth().clip(CPShape.Sheet).background(CP.Raised)) {
-            PlateIllustration(Modifier.fillMaxSize(), EdgeState.Right)
+            GuideIllustration(Modifier.fillMaxSize())
         }
         Column(verticalArrangement = Arrangement.spacedBy(CPSpace.S1)) {
             Text("Compose Pro", style = CPType.Display, color = CP.Ink)

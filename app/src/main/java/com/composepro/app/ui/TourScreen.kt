@@ -44,13 +44,13 @@ fun TourScreen(onDone: () -> Unit) {
     val scope = rememberCoroutineScope()
     Column(Modifier.fillMaxSize().background(CP.Surface).safeDrawingPadding()) {
         Row(Modifier.fillMaxWidth().padding(top = CPSpace.S2, end = CPSpace.S2), horizontalArrangement = Arrangement.End) {
-            LinkButton("Skip", onDone)
+            if (cards.size > 1) LinkButton("Skip", onDone)   // one card: "Start shooting" is the only way on
         }
         HorizontalPager(pager, Modifier.weight(1f)) { page ->
             val card = cards[page]
             Column(Modifier.fillMaxSize().padding(horizontal = CPSpace.S3, vertical = CPSpace.S1), verticalArrangement = Arrangement.spacedBy(CPSpace.S3)) {
                 Box(Modifier.weight(1f).fillMaxWidth().clip(CPShape.Sheet).background(CP.Raised)) {
-                    PlateIllustration(Modifier.fillMaxSize(), card.edge, card.warm)
+                    GuideIllustration(Modifier.fillMaxSize())
                     if (card.tip) {
                         Column(
                             Modifier.align(Alignment.TopCenter).padding(top = CPSpace.S2).clip(CPShape.Pill).background(CP.Glass).padding(horizontal = 14.dp, vertical = 8.dp),
