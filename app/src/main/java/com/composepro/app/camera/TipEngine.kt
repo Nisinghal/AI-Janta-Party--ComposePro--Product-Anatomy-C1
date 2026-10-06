@@ -6,6 +6,7 @@ import com.composepro.app.guide.Angle
 import com.composepro.app.guide.GuidePick
 import com.composepro.app.guide.P
 import com.composepro.app.guide.alignment
+import com.composepro.app.guide.angleFor
 import com.composepro.app.guide.animals
 import com.composepro.app.guide.targets
 import com.composepro.app.ui.EdgeState
@@ -122,8 +123,10 @@ private fun phoneTip(
     // Angle: offFlatDeg is 0 when the phone points straight down and 90 when it's upright.
     if (tilt != Tilt.Unknown) {
         val off = tilt.offFlatDeg
-        val animal = pick.subject in animals && used.size == 1
-        when (pick.angle) {
+        // One subject: the angle follows what's in view now, not what was there when the guide was picked.
+        val single = used.size == 1
+        val animal = single && used[0].category in animals
+        when (if (single) angleFor(used[0].category) else pick.angle) {
             Angle.Above -> if (off > 25f) return frame("angle-above", "Hold the phone flat above it.", "Flat things look best from straight above")
             Angle.Eye -> if (off < 60f) return frame(
                 "angle-eye",
@@ -161,7 +164,7 @@ private fun phoneTip(
     if (hypot(dx, dy) < tol) return null
     val move = phoneMove(dx, dy, tilt.flat)
     val why = if (used.size == 1) "So $name sits on the circle" else "So the group sits in the middle"
-    return frame("move-$move", move, why)
+    return frame("move", move, why)   // one key for every direction, so the card stays up and its words update live
 }
 
 /**

@@ -125,7 +125,7 @@ class FrameAnalyzer(private val context: Context, private val onResult: (FrameRe
         return list
     }
 
-    /** Gives each thing a lasting id by overlap with last frame's things, and keeps one the model missed for up to 0.6s, so marks and arrows don't flicker. */
+    /** Gives each thing a lasting id by overlap with last frame's things, and keeps one the model missed for up to 1s, so marks and arrows don't flicker. */
     private val recent = mutableMapOf<Int, Pair<Thing, Long>>()
     private var nextId = 1
 
@@ -139,7 +139,7 @@ class FrameAnalyzer(private val context: Context, private val onResult: (FrameRe
             Thing(id, f.box, f.name)
         }
         fresh.forEach { recent[it.id!!] = it to now }
-        recent.entries.removeAll { now - it.value.second > 600 }
+        recent.entries.removeAll { now - it.value.second > 1000 }
         val held = recent.filterKeys { it !in used }.values.map { it.first }
         return (fresh + held).sortedByDescending { it.area }.take(6)
     }

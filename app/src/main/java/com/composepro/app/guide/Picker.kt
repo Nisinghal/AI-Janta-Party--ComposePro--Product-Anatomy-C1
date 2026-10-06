@@ -28,7 +28,8 @@ private val tall = setOf(
     "umbrella", "clock", "TV", "refrigerator", "bicycle", "motorcycle", "car", "bus", "truck", "boat", "train", "bench", "teddy bear",
 )
 
-private fun angleFor(name: String?): Angle = when (name) {
+/** Best angle for one subject, by what it is. */
+fun angleFor(name: String?): Angle = when (name) {
     in animals, in tall -> Angle.Eye
     in flat -> Angle.Above
     "cup", "cake", "hot dog", "broccoli", "carrot" -> Angle.Diner
