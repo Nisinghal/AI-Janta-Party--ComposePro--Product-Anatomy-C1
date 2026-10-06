@@ -1,9 +1,12 @@
 package com.composepro.app.camera
 
+import android.graphics.RectF
 import com.composepro.app.guide.Alignment
-import com.composepro.app.guide.Guide
+import com.composepro.app.guide.Angle
+import com.composepro.app.guide.GuidePick
 import com.composepro.app.guide.P
 import com.composepro.app.guide.alignment
+import com.composepro.app.guide.animals
 import com.composepro.app.guide.targets
 import com.composepro.app.ui.EdgeState
 import kotlin.math.abs
@@ -12,14 +15,17 @@ import kotlin.math.hypot
 enum class TipKind { None, Note, Light, Framing, Guide, Good }
 
 /**
- * What the camera should say right now. [key] identifies the problem so the screen can tell
- * "same problem, keep showing it" from "new problem, wait a second before showing it".
+ * What the camera should say right now. Two rows can show at once (user decision, 2026-10-06: "both, always"):
+ * [phone] is how to hold or move the phone, [arrange] is where to move the things themselves.
+ * [key] identifies the problem so the screen can tell "same problem, keep showing it"
+ * from "new problem, wait a second before showing it".
  */
 data class TipDecision(
     val key: String,
     val kind: TipKind,
-    val line1: String = "",
-    val line2: String = "",
+    val phone: String = "",
+    val why: String = "",
+    val arrange: String? = null,
     val remind: String? = null,
     val edge: EdgeState = EdgeState.None,
     val main: Thing? = null,
@@ -30,17 +36,19 @@ data class TipDecision(
     companion object { val NONE = TipDecision("none", TipKind.None) }
 }
 
-/** Thresholds are first guesses from AX_SPEC/GUIDANCE, to be tuned on real food. */
+/** Thresholds are first guesses from AX_SPEC/GUIDANCE, tuned after the 2026-10-06 phone test. */
 object Thresholds {
     const val TOO_DARK = 40f
     const val WARM_CAST = 20f
     const val GLARE = 0.06f
     const val SHADOW = 60f
     const val EDGE_MARGIN = 0.01f
-    const val TOO_CLOSE_AREA = 0.6f
-    const val TOO_SMALL_AREA = 0.03f
-    const val NOT_FLAT_DEG = 10f
+    const val TOO_CLOSE_AREA = 0.7f
+    const val TOO_SMALL_AREA = 0.06f
     const val NOT_LEVEL_DEG = 7f
+    /** How far the subject (or a group's middle) may sit from its spot before the phone tip asks to move. */
+    const val SPOT_TOLERANCE = 0.08f
+    const val GROUP_TOLERANCE = 0.15f
 }
 
 /** Words that read naturally without "a": "Looks like pizza", not "Looks like a pizza". */
@@ -59,49 +67,134 @@ fun looksLike(name: String?): String? = name?.let { "Looks like ${withArticle(it
 /** The name used in Review and the "not right" list, e.g. "Cup", "Laptop". */
 fun thingName(name: String?): String = name?.replaceFirstChar { it.uppercase() } ?: "Photo"
 
-/** Priority: too dark → light → framing → guide → all good. One tip at a time (BRIEF.md). */
-fun decide(r: FrameResult?, guide: Guide, slots: Int, tilt: Tilt, zoom: Float, dismissed: (Thing) -> Boolean): TipDecision {
+private class PhoneTip(val key: String, val kind: TipKind, val text: String, val why: String)
+
+/**
+ * Phone row priority: light → angle → level → distance → where the subject sits.
+ * Arrange row (2+ things): which thing to move where. One phone tip at a time; the arrange row shows alongside it.
+ */
+fun decide(r: FrameResult?, pick: GuidePick, tilt: Tilt, zoom: Float, dismissed: (Thing) -> Boolean): TipDecision {
     if (r == null) return TipDecision.NONE
     if (r.meanY < Thresholds.TOO_DARK) return TipDecision("dark", TipKind.Note, "Too dark for me to see. Try more light, or just shoot.")
     val main = r.things.firstOrNull() ?: return TipDecision.NONE   // not sure: no edge, no tip
     if (dismissed(main)) return TipDecision.NONE
-    val looks = looksLike(main.category)
-    fun line2(why: String) = if (looks != null) "$why · $looks" else why
-    fun light(key: String, l1: String, why: String) =
-        TipDecision(key, TipKind.Light, l1, line2(why), l1.replaceFirstChar { it.lowercase() }, EdgeState.Off, main)
-    fun framing(key: String, l1: String, why: String) =
-        TipDecision(key, TipKind.Framing, l1, line2(why), l1.replaceFirstChar { it.lowercase() }, EdgeState.Off, main)
+
+    val used = r.things.take(pick.slots)
+    val group = RectF(used[0].box).apply { used.drop(1).forEach { union(it.box) } }
+    val single = used.size == 1
+    val subject = if (single) main else Thing(null, group, null)
+    val name = if (single) main.category?.let { "the $it" } ?: "it" else "them"
+    val points = used.map { P(it.cx, it.cy) }
+    val al = alignment(pick.guide, points, pick.slots)
+    val spots = targets(pick.guide, pick.slots)
+
+    val phone = phoneTip(r, pick, tilt, zoom, group, name, al, spots, used)
+    val arrange = if (pick.arranging && used.size >= 2) arrangeTip(used, al, spots, points) else null
+
+    if (phone == null && arrange == null) {
+        return TipDecision("good", TipKind.Good, edge = EdgeState.Right, main = subject, alignment = al)
+    }
+    val looks = if (single) looksLike(main.category) else null
+    return TipDecision(
+        key = "${phone?.key ?: "-"}|${if (arrange != null) "arrange" else "-"}",
+        kind = phone?.kind ?: TipKind.Guide,
+        phone = phone?.text ?: "",
+        why = listOfNotNull(phone?.why, looks).joinToString(" · "),
+        arrange = arrange,
+        remind = (phone?.text ?: arrange)?.replaceFirstChar { it.lowercase() },
+        edge = EdgeState.Off,
+        main = subject,
+        alignment = al,
+    )
+}
+
+private fun phoneTip(
+    r: FrameResult, pick: GuidePick, tilt: Tilt, zoom: Float, group: RectF, name: String,
+    al: Alignment, spots: List<P>, used: List<Thing>,
+): PhoneTip? {
+    fun light(key: String, text: String, why: String) = PhoneTip(key, TipKind.Light, text, why)
+    fun frame(key: String, text: String, why: String) = PhoneTip(key, TipKind.Framing, text, why)
 
     if (r.warmth > Thresholds.WARM_CAST) return light("warm", "Move it toward window light.", "The light here is turning it yellow")
     if (r.clipFrac > Thresholds.GLARE) return light("glare", "Tilt a little to dodge the glare.", "Bright spots are washing it out")
     if (r.centerY < Thresholds.SHADOW) return light("shadow", "Turn so the light falls on it.", "It's sitting in shadow")
 
-    val b = main.box
-    val m = Thresholds.EDGE_MARGIN
-    if (b.left <= m || b.top <= m || b.right >= 1 - m || b.bottom >= 1 - m) return framing("cut", "Step back a little.", "It's cut off at the edge")
-    if (main.area > Thresholds.TOO_CLOSE_AREA && zoom < 1.5f) return framing("close", "Step back and zoom to 2×.", "Up close, plates bend at the edges")
-    if (tilt.flat && tilt.offFlatDeg > Thresholds.NOT_FLAT_DEG) return framing("flat", "Hold the phone flat above the table.", "From above works best straight down")
-    if (!tilt.flat && tilt != Tilt.Unknown && abs(tilt.rollDeg) > Thresholds.NOT_LEVEL_DEG && abs(tilt.rollDeg) < 45f) return framing("level", "Hold the phone level.", "The table edge looks tilted")
-
-    val points = r.things.map { P(it.cx, it.cy) }
-    val al = alignment(guide, points, slots)
-    if (!al.done) {
-        val t = targets(guide, slots)
-        val misses = al.matches.filter { !it.hit }
-        val worst = misses.maxBy { m -> hypot(t[m.target].x - points[m.thing].x, t[m.target].y - points[m.thing].y) }
-        val way = direction(t[worst.target].x - points[worst.thing].x, t[worst.target].y - points[worst.thing].y)
-        val who = r.things[worst.thing].category?.let { "the $it" } ?: "it"
-        val line1 = when {
-            al.matches.size == 1 -> "Move $who $way onto the circle."
-            misses.size == 1 -> "One more: move $who $way onto its circle."
-            else -> "Follow the arrows: put each thing on a circle."
+    // Angle: offFlatDeg is 0 when the phone points straight down and 90 when it's upright.
+    if (tilt != Tilt.Unknown) {
+        val off = tilt.offFlatDeg
+        val animal = pick.subject in animals && used.size == 1
+        when (pick.angle) {
+            Angle.Above -> if (off > 25f) return frame("angle-above", "Hold the phone flat above it.", "Flat things look best from straight above")
+            Angle.Eye -> if (off < 60f) return frame(
+                "angle-eye",
+                if (animal) "Get down to its eye level." else "Lower the phone to $name's height.",
+                if (animal) "Animals look best at their own eye level" else "Tall things look best from the side",
+            )
+            Angle.Diner -> if (off < 20f || off > 75f) return frame("angle-diner", "Tilt the phone, like you're sitting at the table.", "A 45° angle shows the top and the side")
+            Angle.Any -> Unit
         }
-        val line2 = if (al.matches.size == 1) "${guide.label} guide"
-        else "${guide.label} · ${al.placed} of ${al.matches.size} in place"
-        return TipDecision("guide-${guide.name}", TipKind.Guide, line1, line2,
-            guide.tip.replaceFirstChar { it.lowercase() }, EdgeState.None, main, al)
+        if (!tilt.flat && abs(tilt.rollDeg) > Thresholds.NOT_LEVEL_DEG && abs(tilt.rollDeg) < 45f) {
+            return frame("level", "Hold the phone level.", "The picture looks tilted")
+        }
     }
-    return TipDecision("good", TipKind.Good, edge = EdgeState.Right, main = main, alignment = al)
+
+    val m = Thresholds.EDGE_MARGIN
+    if (group.left <= m || group.top <= m || group.right >= 1 - m || group.bottom >= 1 - m) {
+        return frame("cut", "Step back a little.", "Part of it is cut off at the edge")
+    }
+    val area = group.width() * group.height()
+    if (area > Thresholds.TOO_CLOSE_AREA && zoom < 1.5f) return frame("close", "Step back and zoom to 2×.", "Up close, things bend at the edges")
+    if (area < Thresholds.TOO_SMALL_AREA) return frame("small", "Move closer.", "It's small in the frame")
+
+    // Where it sits. One thing: move the phone until it lands on its circle. A group: keep its middle near the centre.
+    val from: P
+    val to: P
+    val tol: Float
+    if (used.size == 1) {
+        val m0 = al.matches.firstOrNull() ?: return null
+        from = P(used[0].cx, used[0].cy); to = spots[m0.target]; tol = Thresholds.SPOT_TOLERANCE
+    } else {
+        from = P(group.centerX(), group.centerY()); to = P(0.5f, 0.5f); tol = Thresholds.GROUP_TOLERANCE
+    }
+    val dx = to.x - from.x
+    val dy = to.y - from.y
+    if (hypot(dx, dy) < tol) return null
+    val move = phoneMove(dx, dy, tilt.flat)
+    val why = if (used.size == 1) "So $name sits on the circle" else "So the group sits in the middle"
+    return frame("move-$move", move, why)
+}
+
+/**
+ * Turns "the subject needs to move this way in the picture" into a phone move. Moving the phone left
+ * moves everything in the picture right. Up/down depends on how it's held: aim lower/higher when upright,
+ * toward/away from you when it's flat above a table.
+ */
+private fun phoneMove(dx: Float, dy: Float, flat: Boolean): String {
+    val h = when { dx > 0.03f -> "left"; dx < -0.03f -> "right"; else -> null }
+    val v = when {
+        dy < -0.03f -> if (flat) "toward you" else "aim a little lower"
+        dy > 0.03f -> if (flat) "away from you" else "aim a little higher"
+        else -> null
+    }
+    return when {
+        h != null && v != null && flat -> "Move the phone $h and $v."
+        h != null && v != null -> "Move the phone $h and $v."
+        h != null -> "Move the phone $h."
+        v != null && flat -> "Move the phone $v."
+        v != null -> "${v.replaceFirstChar { it.uppercase() }}."
+        else -> "Move the phone a little."
+    }
+}
+
+/** Arrange row: which thing goes where. Null when everything sits on its circle. */
+private fun arrangeTip(used: List<Thing>, al: Alignment, spots: List<P>, points: List<P>): String? {
+    val misses = al.matches.filter { !it.hit }
+    if (misses.isEmpty()) return null
+    val worst = misses.maxBy { m -> hypot(spots[m.target].x - points[m.thing].x, spots[m.target].y - points[m.thing].y) }
+    val way = direction(spots[worst.target].x - points[worst.thing].x, spots[worst.target].y - points[worst.thing].y)
+    val who = used[worst.thing].category?.let { "the $it" } ?: "it"
+    return if (misses.size == 1) "Move $who $way onto its circle."
+    else "Move $who $way onto its circle (${al.placed} of ${al.matches.size} done)."
 }
 
 /** "up and to the left", "down", "a little to the right". dx/dy are in frame fractions, screen directions. */

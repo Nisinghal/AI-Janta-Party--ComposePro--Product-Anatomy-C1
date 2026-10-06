@@ -99,7 +99,30 @@ class FrameAnalyzer(private val context: Context, private val onResult: (FrameRe
         // One plate can come back as both "bowl" and "pizza": keep only the surer one.
         val kept = mutableListOf<Found>()
         for (f in all) if (kept.none { iou(it.box, f.box) > 0.5f }) kept += f
-        return kept
+        return mergeParts(kept)
+    }
+
+    /**
+     * Parts of one object become one thing: a vase with flowers came back as "plant" + "vase" (+ "bowl"),
+     * and the app asked to pull them apart (phone test, 2026-10-06). If most of one box sits inside another,
+     * they're merged into one box named after the bigger part.
+     */
+    private fun mergeParts(found: List<Found>): List<Found> {
+        val list = found.sortedByDescending { it.box.width() * it.box.height() }.toMutableList()
+        var i = 0
+        while (i < list.size) {
+            var j = i + 1
+            while (j < list.size) {
+                val a = list[i]; val b = list[j]
+                if (insideShare(b.box, a.box) > 0.6f) {
+                    list[i] = Found(RectF(a.box).apply { union(b.box) }, a.name, max(a.score, b.score))
+                    list.removeAt(j)
+                    j = i + 1   // the bigger box grew; check the rest again
+                } else j++
+            }
+            i++
+        }
+        return list
     }
 
     /** Gives each thing a lasting id by overlap with last frame's things, and keeps one the model missed for up to 0.6s, so marks and arrows don't flicker. */
@@ -146,31 +169,35 @@ class FrameAnalyzer(private val context: Context, private val onResult: (FrameRe
             }
             y += step
         }
+        // Colour cast is read only from bright, not-blown-out pixels (white walls, plates, highlights),
+        // which should be neutral. Averaging every pixel made an orange tablecloth look like yellow light.
         val uPlane = proxy.planes[1]; val vPlane = proxy.planes[2]
         val uBuf = uPlane.buffer; val vBuf = vPlane.buffer
-        var uSum = 0L; var vSum = 0L; var m = 0
+        var uSum = 0L; var vSum = 0L; var bright = 0; var m = 0
         var cy = 0
         while (cy < height / 2) {
             var cx = 0
             while (cx < width / 2) {
+                m++
+                val luma = yBuf.get(2 * cy * rowStride + 2 * cx * pixStride).toInt() and 0xFF
                 val ui = cy * uPlane.rowStride + cx * uPlane.pixelStride
                 val vi = cy * vPlane.rowStride + cx * vPlane.pixelStride
-                if (ui < uBuf.limit() && vi < vBuf.limit()) {
+                if (luma in 170..247 && ui < uBuf.limit() && vi < vBuf.limit()) {
                     uSum += uBuf.get(ui).toInt() and 0xFF
                     vSum += vBuf.get(vi).toInt() and 0xFF
-                    m++
+                    bright++
                 }
                 cx += step
             }
             cy += step
         }
-        val meanU = if (m > 0) uSum.toFloat() / m else 128f
-        val meanV = if (m > 0) vSum.toFloat() / m else 128f
+        val enoughWhite = m > 0 && bright >= m * 0.03f
         return Light(
             meanY = if (n > 0) sum.toFloat() / n else 0f,
             centerY = if (cN > 0) cSum.toFloat() / cN else 0f,
             clipFrac = if (cN > 0) clipped.toFloat() / cN else 0f,
-            warmth = (meanV - 128f) - (meanU - 128f),   // high = yellow/orange cast
+            // High = whites look yellow/orange. 0 when there's nothing white enough to judge by.
+            warmth = if (enoughWhite) (vSum.toFloat() / bright - 128f) - (uSum.toFloat() / bright - 128f) else 0f,
         )
     }
 
@@ -185,6 +212,14 @@ class FrameAnalyzer(private val context: Context, private val onResult: (FrameRe
             "potted plant" -> "plant"
             "tv" -> "TV"
             else -> name
+        }
+
+        /** Share of [small]'s area that lies inside [big]. */
+        fun insideShare(small: RectF, big: RectF): Float {
+            val iw = min(small.right, big.right) - max(small.left, big.left)
+            val ih = min(small.bottom, big.bottom) - max(small.top, big.top)
+            if (iw <= 0 || ih <= 0) return 0f
+            return iw * ih / (small.width() * small.height()).coerceAtLeast(1e-6f)
         }
 
         fun iou(a: RectF, b: RectF): Float {

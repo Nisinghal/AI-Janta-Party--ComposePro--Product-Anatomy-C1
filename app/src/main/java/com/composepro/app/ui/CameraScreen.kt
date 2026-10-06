@@ -10,6 +10,7 @@ import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.core.resolutionselector.AspectRatioStrategy
 import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.lifecycle.awaitInstance
 import androidx.camera.view.PreviewView
@@ -98,13 +99,19 @@ private val fourByThree = ResolutionSelector.Builder()
     .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
     .build()
 
+/** The photo itself: 3:4 at the camera's full resolution, with the phone's best processing (phone test 2026-10-06: photos looked low quality). */
+private val fullPhoto = ResolutionSelector.Builder()
+    .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
+    .setResolutionStrategy(ResolutionStrategy.HIGHEST_AVAILABLE_STRATEGY)
+    .build()
+
 /** A tip appears only after the same thing has been seen for about a second (AX_SPEC). */
 private const val SETTLE_MS = 900L
 
 /** How long the camera looks before it picks a guide, how long it explains the pick, and how long a changed count must last before it looks again. */
 private const val SCAN_MS = 3000L
-private const val EXPLAIN_MS = 3500L
-private const val RELOOK_MS = 2500L
+private const val EXPLAIN_MS = 2000L
+private const val RELOOK_MS = 4000L
 
 @Composable
 fun CameraScreen(state: AppState) {
@@ -119,7 +126,7 @@ fun CameraScreen(state: AppState) {
         }
     }
     val imageCapture = remember {
-        ImageCapture.Builder().setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY).setResolutionSelector(fourByThree).build()
+        ImageCapture.Builder().setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY).setResolutionSelector(fullPhoto).build()
     }
     var frame by remember { mutableStateOf<FrameResult?>(null) }
     val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
@@ -187,7 +194,8 @@ fun CameraScreen(state: AppState) {
             pick = pickGuide(samples.last { it.size == usual }, tilt.flat)
             pickedAt = t
         } else if (f.things.size != p.slots) {
-            // Something added or taken away (not just a missed frame): look again.
+            // Something added or taken away, or the phone pointed somewhere else, for a good while
+            // (not a missed frame or a hand passing through): look again. Tapping the label also does it.
             if (mismatchSince == 0L) mismatchSince = t else if (t - mismatchSince > RELOOK_MS) lookAgain()
         } else mismatchSince = 0L
     }
@@ -195,9 +203,10 @@ fun CameraScreen(state: AppState) {
     val explaining = pick != null && now - pickedAt < EXPLAIN_MS
     val guide = pick?.guide ?: Guide.Centre
     val slots = pick?.slots ?: 1
+    val currentPick = pick
 
     // ---- 2. Tips: raw decision, then settled so they don't flicker ----
-    val decided = if (!state.tipsOn) TipDecision.NONE else decide(frame, guide, slots, tilt, zoom) { thing ->
+    val decided = if (!state.tipsOn || currentPick == null) darkOnly(frame) else decide(frame, currentPick, tilt, zoom) { thing ->
         SystemClock.elapsedRealtime() < dismissedUntil || (thing.id != null && dismissedIds[thing.id] == true)
     }
     // While looking and while explaining the pick, only the "too dark" note can show.
@@ -285,7 +294,7 @@ fun CameraScreen(state: AppState) {
             GuideLayer(guide, slots, guideAlignment, points, guideVisible, Modifier.fillMaxSize())
             EdgeLayer(shown.main, shown.edge, Modifier.fillMaxSize())
             TipCapsule(shown, ::notRight, Modifier.align(Alignment.TopCenter).padding(top = CPSpace.S2, start = CPSpace.S3, end = CPSpace.S3))
-            NoteChip(if (dark) shown.line1 else null, Modifier.align(Alignment.TopCenter).padding(top = CPSpace.S2))
+            NoteChip(if (dark) shown.phone else null, Modifier.align(Alignment.TopCenter).padding(top = CPSpace.S2))
             val top = Modifier.align(Alignment.TopCenter).padding(top = CPSpace.S2, start = CPSpace.S3, end = CPSpace.S3)
             InfoCapsule(
                 visible = scanning && !dark,
@@ -340,3 +349,8 @@ fun GlassToast(text: String, modifier: Modifier = Modifier) {
         Text(text, style = CPType.CaptionMedium, color = CP.OnDark, textAlign = TextAlign.Center)
     }
 }
+
+/** Before a guide is picked, the only thing worth saying is "too dark". */
+private fun darkOnly(frame: FrameResult?): TipDecision =
+    if (frame != null && frame.meanY < Thresholds.TOO_DARK) TipDecision("dark", TipKind.Note, "Too dark for me to see. Try more light, or just shoot.")
+    else TipDecision.NONE

@@ -5,6 +5,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
@@ -58,10 +59,21 @@ object PhotoStore {
         false
     }
 
-    /** Downsampled bitmap for thumbnails and Review, so big photos don't run the phone out of memory. */
+    /**
+     * Downsampled bitmap, so big photos don't run the phone out of memory. Small thumbnails use Android's
+     * cached ones; anything bigger is decoded from the real photo. Android's cached thumbnail is only about
+     * 500px whatever size is asked for, which made Review and the photo viewer look blurry (phone test, 2026-10-06).
+     */
     fun load(context: Context, uri: Uri, maxSide: Int): Bitmap? = try {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && maxSide <= 400) {
             context.contentResolver.loadThumbnail(uri, Size(maxSide, maxSide), null)
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            // ImageDecoder also turns the photo the right way up (from its EXIF orientation).
+            ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.contentResolver, uri)) { decoder, info, _ ->
+                val s = info.size
+                val scale = minOf(1f, maxSide.toFloat() / maxOf(s.width, s.height))
+                decoder.setTargetSize((s.width * scale).toInt().coerceAtLeast(1), (s.height * scale).toInt().coerceAtLeast(1))
+            }
         } else {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }

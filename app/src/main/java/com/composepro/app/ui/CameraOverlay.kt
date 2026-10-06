@@ -13,6 +13,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -209,7 +210,10 @@ fun EdgeLayer(main: Thing?, edge: EdgeState, modifier: Modifier = Modifier) {
     }
 }
 
-/** The tip capsule: line 1 is the action, line 2 the reason; "Not right?" sits underneath as its own button. */
+/**
+ * The tip card: up to two rows, "Phone" (how to hold or move the phone, with its reason) and
+ * "Arrange" (where to move a thing). "Not right?" sits underneath as its own button.
+ */
 @Composable
 fun TipCapsule(tip: TipDecision, onNotRight: () -> Unit, modifier: Modifier = Modifier) {
     AnimatedVisibility(
@@ -220,17 +224,33 @@ fun TipCapsule(tip: TipDecision, onNotRight: () -> Unit, modifier: Modifier = Mo
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Column(
-                Modifier.widthIn(max = 320.dp).clip(CPShape.Pill).background(CP.Glass).padding(horizontal = 18.dp, vertical = 10.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
+                Modifier.widthIn(max = 340.dp).clip(CPShape.Card).background(CP.Glass).padding(horizontal = 16.dp, vertical = 10.dp),
             ) {
-                Text(tip.line1, style = CPType.BodyStrong, color = CP.OnDark, textAlign = TextAlign.Center)
-                Text(tip.line2, style = CPType.Caption, color = CP.OnDark.copy(alpha = 0.75f), textAlign = TextAlign.Center)
+                if (tip.phone.isNotEmpty()) TipRow("Phone", tip.phone, tip.why.ifEmpty { null })
+                if (tip.phone.isNotEmpty() && tip.arrange != null) {
+                    Box(Modifier.padding(vertical = 8.dp).fillMaxWidth().height(1.dp).background(CP.OnDark.copy(alpha = 0.2f)))
+                }
+                tip.arrange?.let { TipRow("Arrange", it, null) }
             }
             Box(
                 Modifier.padding(top = CPSpace.S1).clip(CPShape.Pill).background(CP.Glass)
                     .clickable(role = Role.Button, onClick = onNotRight)
                     .padding(horizontal = 14.dp, vertical = 8.dp),
             ) { Text("Not right?", style = CPType.CaptionMedium, color = CP.OnDark) }
+        }
+    }
+}
+
+@Composable
+private fun TipRow(label: String, text: String, why: String?) {
+    Row(verticalAlignment = Alignment.Top) {
+        Text(
+            label.uppercase(), style = CPType.Caption, color = CP.OnDark.copy(alpha = 0.6f),
+            modifier = Modifier.width(64.dp).padding(top = 2.dp),
+        )
+        Column {
+            Text(text, style = CPType.BodyStrong, color = CP.OnDark)
+            why?.let { Text(it, style = CPType.Caption, color = CP.OnDark.copy(alpha = 0.75f)) }
         }
     }
 }
