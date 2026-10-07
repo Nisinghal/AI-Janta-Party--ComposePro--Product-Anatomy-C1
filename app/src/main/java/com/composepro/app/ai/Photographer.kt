@@ -218,8 +218,10 @@ object Photographer {
     """.trimIndent()
 
     private val CHECK_SYSTEM = PERSONA + "\n\n" + """
-        A moment ago you gave this person some moves. Now look at the new frame and judge each move honestly:
-        done is true only if the frame clearly shows it was done. For each move write a note of at most 10 words:
+        A moment ago you gave this person some moves. Now look at the new frame and judge each move fairly, like a
+        friendly photographer standing next to them: done is true if the move was done or nearly done, or if the frame
+        now looks the way the move was aiming for. Moves you can't judge from one frame (phone height, distance) count
+        as done when the result looks right. Moves marked (already done) stay done. For each move write a note of at most 10 words:
         "Done" if done, otherwise exactly what is still off ("Almost, lower the phone a little more").
         Set ready to true only if the photo is now good to take. In next, say the single most useful thing to do now,
         at most 12 words (or "Take the photo." if ready).
@@ -274,8 +276,8 @@ object Photographer {
         }
 
     /** Blocking: sends the new frame and the moves given earlier, and gets back which are done. */
-    fun check(frame: Bitmap, advice: Advice, context: String): Reply<Review> {
-        val list = advice.moves.mapIndexed { i, m -> "${i + 1}. ${m.action}" }.joinToString("\n")
+    fun check(frame: Bitmap, advice: Advice, context: String, alreadyDone: List<Boolean> = emptyList()): Reply<Review> {
+        val list = advice.moves.mapIndexed { i, m -> "${i + 1}. ${m.action}${if (alreadyDone.getOrElse(i) { false }) " (already done)" else ""}" }.joinToString("\n")
         val text = "The subject: ${advice.subject}.\nThe moves you gave:\n$list\n$context"
         return when (val r = generate(CHECK_SYSTEM, CHECK_SCHEMA, frame, text)) {
             is Reply.Failed -> r

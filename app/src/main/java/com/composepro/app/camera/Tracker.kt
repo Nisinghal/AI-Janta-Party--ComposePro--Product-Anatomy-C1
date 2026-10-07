@@ -40,6 +40,34 @@ class Tracker {
 
     fun stop() { locked = false; tpl = FloatArray(0) }
 
+    /** True while there's a remembered look to follow or find again (even if it's lost right now). */
+    val hasSubject get() = tpl.isNotEmpty()
+
+    /**
+     * The camera zoomed by [f] (2 when going 1× → 2×). Everything grows away from the centre by the same amount, so
+     * the box is moved and grown to match. Tapping 2× used to lose the subject at once (a jump the frame-to-frame
+     * search can't follow), and then the "put it in the ring" step could never tick (group test 2026-10-07).
+     */
+    fun zoomBy(f: Float) {
+        if (tpl.isEmpty() || f <= 0f || f == 1f) return
+        cx = w / 2f + (cx - w / 2f) * f; cy = h / 2f + (cy - h / 2f) * f
+        bw = (bw * f).coerceIn(6f, w.toFloat()); bh = (bh * f).coerceIn(6f, h.toFloat())
+        if (cx < 0 || cy < 0 || cx >= w || cy >= h) locked = false   // zoomed past it
+    }
+
+    /** Lost it: look across the whole frame for the remembered look again (it came back into view). */
+    fun refind(now: Gray): Boolean {
+        if (locked) return true
+        if (tpl.isEmpty()) return false
+        val m = best(now, cx, cy, step = 3, radiusX = w, radiusY = h, scales = floatArrayOf(0.75f, 1f, 1.3f), wholeFrame = true, pull = 0.6f)
+        lastScore = m?.score ?: -1f
+        if (m == null || m.score < REFIND_SCORE) return false
+        apply(m)
+        locked = true
+        best(now, cx, cy, step = 1, radiusX = 3, radiusY = 3, scales = floatArrayOf(1f))?.let { if (it.score >= MIN_SCORE) apply(it) }
+        return true
+    }
+
     /** Remember the subject at [box] (fractions) in [then], then find it in [now] anywhere in the frame. */
     fun start(then: Gray, box: RectF, now: Gray): Boolean {
         w = then.w; h = then.h
@@ -129,6 +157,8 @@ class Tracker {
         const val MIN_SCORE = 0.55f
         /** A little lower for the first find, which crosses a few seconds and possibly a step closer or back. */
         const val START_SCORE = 0.45f
+        /** Higher when finding it again, so a look-alike elsewhere isn't taken for it. */
+        const val REFIND_SCORE = 0.62f
     }
 }
 

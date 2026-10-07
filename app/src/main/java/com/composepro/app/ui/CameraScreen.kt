@@ -329,8 +329,14 @@ fun CameraScreen(state: AppState) {
     var trackedBox by remember { mutableStateOf<RectF?>(null) }
     val streak = remember { mutableStateMapOf<Int, Int>() }
     val liveOk = remember { mutableStateMapOf<Int, Boolean>() }
-    // Steps the person ticked off themselves ("I can't go any lower than this", classmate S, 2026-10-06).
+    // Steps the person ticked (or unticked) themselves ("I can't go any lower than this", classmate S, 2026-10-06).
     val manualDone = remember { mutableStateMapOf<Int, Boolean>() }
+    // Once a step has been done it stays done (group test 2026-10-07: "both steps never complete". Tilting for one
+    // step moved the subject off the ring of the other, so a finished step unticked itself and they chased each other).
+    val doneOnce = remember { mutableStateMapOf<Int, Boolean>() }
+    // Zoom the tracker last knew, so a zoom tap moves its box along with the picture.
+    var trackZoom by remember { mutableFloatStateOf(1f) }
+    var lastRefind by remember { mutableLongStateOf(0L) }
     // What the view looked like when the plan arrived, to notice when they've turned to something else.
     var planGray by remember { mutableStateOf<Gray?>(null) }
     // Looks like they've turned to something else: the card suggests ↻ (the steps stay until they tap it).
@@ -389,7 +395,7 @@ fun CameraScreen(state: AppState) {
                         "Subject: photographer box=$b, detector=${subject?.category}#${subject?.id} ${subject?.box}, " +
                             "tracker=${if (trackedBox != null) "found at $trackedBox" else "lost"} (match ${"%.2f".format(tracker.lastScore)}), phone saw ${seenNow.map { "${it.category}${it.box}" }}",
                     )
-                    streak.clear(); liveOk.clear(); checkError = null
+                    streak.clear(); liveOk.clear(); doneOnce.clear(); checkError = null; trackZoom = shownZoom
                     val trusted = r.value.moves.map { it.check != CheckBy.Angle || liveCheck(it, tiltNow, subject, shownZoom) != true }
                     planScene = coarseScene(frame, tilt); planAt = SystemClock.elapsedRealtime(); lostSince = 0L
                     planGray = frame?.gray; manualDone.clear(); newScene = false
@@ -413,7 +419,8 @@ fun CameraScreen(state: AppState) {
         checkError = null
         lastReqAt = SystemClock.elapsedRealtime()
         scope.launch {
-            val r = withContext(Dispatchers.IO) { Photographer.check(bmp, c.advice, ctx) }
+            val already = c.advice.moves.indices.map { doneOnce[it] == true || manualDone[it] == true }
+            val r = withContext(Dispatchers.IO) { Photographer.check(bmp, c.advice, ctx, already) }
             busy = false
             when (r) {
                 is Reply.Ok -> coach = coach?.let { now ->
@@ -427,7 +434,13 @@ fun CameraScreen(state: AppState) {
         }
     }
 
-    fun closeCoach() { coach = null; checkError = null; streak.clear(); liveOk.clear(); tracker.stop(); trackedBox = null }
+    fun closeCoach() { coach = null; checkError = null; streak.clear(); liveOk.clear(); doneOnce.clear(); tracker.stop(); trackedBox = null }
+
+    // Zoom taps and pinches: move the tracked box with the picture instead of losing the subject.
+    LaunchedEffect(shownZoom) {
+        if (tracker.hasSubject && trackZoom > 0f) { tracker.zoomBy(shownZoom / trackZoom); trackedBox = tracker.box }
+        trackZoom = shownZoom
+    }
 
     // The photographer's subject, followed live: the same tracked thing, or whatever overlaps its last place most.
     val coachSubject = coach?.let { c ->
@@ -440,6 +453,13 @@ fun CameraScreen(state: AppState) {
             if (tracker.locked) {
                 tracker.update(g); trackedBox = tracker.box
                 if (!tracker.locked) android.util.Log.i("ComposePro", "Tracker lost the subject (match ${"%.2f".format(tracker.lastScore)})")
+            } else if (tracker.hasSubject && SystemClock.elapsedRealtime() - lastRefind > 700) {
+                // Lost: look for it again about once a second, so its steps can be measured again when it's back.
+                lastRefind = SystemClock.elapsedRealtime()
+                if (tracker.refind(g)) {
+                    trackedBox = tracker.box
+                    android.util.Log.i("ComposePro", "Tracker found the subject again (match ${"%.2f".format(tracker.lastScore)})")
+                }
             }
         }
         val t = SystemClock.elapsedRealtime()
@@ -452,14 +472,20 @@ fun CameraScreen(state: AppState) {
             val next = if (ok) (if (prev > 0) prev + 1 else 1) else (if (prev < 0) prev - 1 else -1)
             streak[i] = next
             if (next >= 2) liveOk[i] = true else if (next <= -3) liveOk[i] = false
+            // Not for a step whose phone check already passed when it was given (it measures the wrong thing there).
+            if (liveOk[i] == true && c.liveTrusted.getOrElse(i) { true } && doneOnce[i] != true) {
+                doneOnce[i] = true
+                android.util.Log.i("ComposePro", "Step ${i + 1} done (${m.check}): ${m.action}")
+            }
         }
     }
     val steps = coach?.let { c ->
         c.advice.moves.mapIndexed { i, m ->
             val measurable = when (m.check) { CheckBy.Angle -> tilt != Tilt.Unknown; CheckBy.Frame -> coachSubject != null; CheckBy.Zoom -> true; CheckBy.Other -> false }
             val live = measurable && c.liveTrusted.getOrElse(i) { true }
-            val auto = if (live) liveOk[i] == true else c.checked.getOrElse(i) { false }
-            StepView(m, done = auto || manualDone[i] == true, live = live, note = c.notes.getOrElse(i) { "" })
+            // Done by the phone's own check or by the photographer's look, and then it stays done; a tap overrides.
+            val auto = doneOnce[i] == true || c.checked.getOrElse(i) { false }
+            StepView(m, done = manualDone[i] ?: auto, live = live, note = c.notes.getOrElse(i) { "" })
         }
     }.orEmpty()
     // The ring shows for the first open position step even while the subject is momentarily lost (no dot then).
@@ -493,6 +519,7 @@ fun CameraScreen(state: AppState) {
     var scene by remember { mutableStateOf<List<Int>>(emptyList()) }
     var sceneChangedAt by remember { mutableLongStateOf(0L) }
     var sceneAtCheck by remember { mutableStateOf<List<Int>>(emptyList()) }
+    var grayAtCheck by remember { mutableStateOf<Gray?>(null) }
     LaunchedEffect(pick) { if (pick == null) { closeCoach(); askError = null } }
     LaunchedEffect(frame) {
         // A rough fingerprint of what's in view: count, where the subject is, brightness, phone angle.
@@ -524,11 +551,14 @@ fun CameraScreen(state: AppState) {
         // So the steps are never replaced by the app any more: when it looks like a new scene it only suggests ↻.
         newScene = lostSince != 0L && now - lostSince > 5_000 && now - planAt > 8_000 && heldStill && looksDifferent
         if (allDone) return@LaunchedEffect
-        if (steps.none { !it.done && !it.live }) return@LaunchedEffect
+        if (steps.all { it.done }) return@LaunchedEffect
+        // Group test 2026-10-07: open steps waited for a change in a rough fingerprint (count, where, brightness, angle),
+        // so moving a cable or tilting slightly never got looked at again. Now any visible change counts too.
         val sinceReq = now - lastReqAt
-        val settled = now - sceneChangedAt >= 1500
-        if (sinceReq >= 10_000 && scene != sceneAtCheck && settled) {
-            sceneAtCheck = scene
+        val settled = now - sceneChangedAt >= 1500 || (steadySince != 0L && now - steadySince >= 1500)
+        val changed = scene != sceneAtCheck || differs(frame?.gray, grayAtCheck) > 12f
+        if (sinceReq >= 10_000 && changed && settled) {
+            sceneAtCheck = scene; grayAtCheck = frame?.gray
             checkShot()
         }
     }
@@ -662,7 +692,7 @@ fun CameraScreen(state: AppState) {
                     frame = it.advice.frame?.label, frameWhy = it.advice.frameWhy,
                     steps = steps, ready = allDone, checking = busy, error = checkError,
                     onClose = { closeCoach(); closedFor = scanStart },
-                    onTick = { i -> manualDone[i] = !(manualDone[i] ?: false) },
+                    onTick = { i -> manualDone[i] = !(steps.getOrNull(i)?.done ?: false) },
                     onNewSteps = { closeCoach(); askedFor = -1L },
                     newScene = newScene,
                     modifier = cardSpot,

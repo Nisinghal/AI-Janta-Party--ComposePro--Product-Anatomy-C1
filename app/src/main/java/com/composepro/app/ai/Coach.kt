@@ -29,8 +29,10 @@ data class Coach(
 )
 
 /** How close (fraction of the frame) the subject's centre must be to the ring, and how close its size must be. */
-private const val SPOT = 0.08f
-private const val SIZE_SLACK = 0.15f
+// Group test 2026-10-07 ("both steps never complete"): 0.08 / 15% was hard to hold with a hand-held phone,
+// and the subject's box comes from the photographer's rough outline. 0.10 / 20% is still tight enough to mean it.
+private const val SPOT = 0.10f
+private const val SIZE_SLACK = 0.20f
 
 /**
  * Is this move satisfied right now, judged by the phone itself? Null when the phone can't tell
