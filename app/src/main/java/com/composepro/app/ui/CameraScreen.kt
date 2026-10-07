@@ -703,5 +703,6 @@ private fun findWideLens(p: ProcessCameraProvider): Pair<CameraSelector, Float>?
     else backs.drop(1).mapNotNull { i -> fov(i)?.let { i to it } }.filter { it.second > mainFov * 1.3f }.maxByOrNull { it.second }
         ?.let { (info, f) -> info.cameraSelector to (Math.round(mainFov / f * 10f) / 10f) }
 } catch (e: Exception) {
+    android.util.Log.w("ComposePro", "Couldn't look for a wide lens", e)
     null
 }
