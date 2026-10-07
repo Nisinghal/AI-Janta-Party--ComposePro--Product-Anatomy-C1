@@ -1,50 +1,48 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Compose Pro icon: what the app does, in one glance. Viewfinder corners, the rule-of-thirds grid,
-  the subject (white dot) and the spot it should go (green ring with a tick on a grid cross).
-  Everything sits inside the 66dp safe zone (21..87) so no launcher mask crops it.
+  Compose Pro icon "Camera C" (user's pick, 2026-10-07, concept round 4 A): a white camera whose lens ring opens into
+  a C, around a green lens with a tick. Drawn in the concept's 1024 units, scaled into the 66dp safe zone
+  (farthest point 400 units from the centre → 33dp), so no launcher mask crops it.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-
-    <!-- Thirds grid -->
-    <path
-        android:pathData="M45,31V77M63,31V77M31,45H77M31,63H77"
-        android:strokeWidth="1.6"
-        android:strokeColor="#66FFFFFF"
-        android:strokeLineCap="round" />
-
-    <!-- Viewfinder corners -->
-    <path
-        android:pathData="M29,39V29H39M69,29H79V39M79,69V79H69M39,79H29V69"
-        android:strokeWidth="4"
-        android:strokeColor="#FFFFFF"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:fillColor="#00000000" />
-
-    <!-- The subject, on its way to the spot -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M44,66m-3.5,0a3.5,3.5 0,1 1,7 0a3.5,3.5 0,1 1,-7 0" />
-    <path
-        android:pathData="M48.5,61.5L53.5,55.5"
-        android:strokeWidth="2"
-        android:strokeColor="#CCFFFFFF"
-        android:strokeLineCap="round" />
-
-    <!-- The spot: green ring with a tick, on the top-right grid cross -->
-    <path
-        android:fillColor="#1F9D55"
-        android:pathData="M63,45m-9,0a9,9 0,1 1,18 0a9,9 0,1 1,-18 0" />
-    <path
-        android:pathData="M58.8,45.2L61.9,48.3L67.4,42.2"
-        android:strokeWidth="2.6"
-        android:strokeColor="#FFFFFF"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:fillColor="#00000000" />
+    <group
+        android:scaleX="0.082"
+        android:scaleY="0.082"
+        android:translateX="12.016"
+        android:translateY="12.59">
+        <!-- Camera top -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M416,230H608A36,36 0,0 1,644 266V314A36,36 0,0 1,608 350H416A36,36 0,0 1,380 314V266A36,36 0,0 1,416 230Z" />
+        <!-- Camera body -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M266,300H758A96,96 0,0 1,854 396V684A96,96 0,0 1,758 780H266A96,96 0,0 1,170 684V396A96,96 0,0 1,266 300Z" />
+        <!-- The C: the lens ring, open on the right -->
+        <path
+            android:pathData="M633,438.4A158,158 0,1 0,633 641.6"
+            android:strokeWidth="64"
+            android:strokeColor="#1F1F1F"
+            android:strokeLineCap="round"
+            android:fillColor="#00000000" />
+        <!-- Green lens with a tick -->
+        <path
+            android:fillColor="#2FA84F"
+            android:pathData="M436,540a94,94 0,1 0,188 0a94,94 0,1 0,-188 0" />
+        <path
+            android:pathData="M486,540L516.8,568.6L574,511.4"
+            android:strokeWidth="24"
+            android:strokeColor="#FFFFFF"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:fillColor="#00000000" />
+        <!-- Flash -->
+        <path
+            android:fillColor="#2FA84F"
+            android:pathData="M726,380a26,26 0,1 0,52 0a26,26 0,1 0,-52 0" />
+    </group>
 </vector>

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  One-colour version for Android's themed icons (the phone tints it). The colour icon's dark C can't show in one
+  colour, so here the lens is a hole in the body with the C and the lens drawn inside it.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="0.082"
+        android:scaleY="0.082"
+        android:translateX="12.016"
+        android:translateY="12.59">
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M416,230H608A36,36 0,0 1,644 266V314A36,36 0,0 1,608 350H416A36,36 0,0 1,380 314V266A36,36 0,0 1,416 230Z" />
+        <!-- Body with a round hole for the lens -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:fillType="evenOdd"
+            android:pathData="M266,300H758A96,96 0,0 1,854 396V684A96,96 0,0 1,758 780H266A96,96 0,0 1,170 684V396A96,96 0,0 1,266 300Z M322,540a190,190 0,1 0,380 0a190,190 0,1 0,-380 0Z" />
+        <path
+            android:pathData="M619.2,450A140,140 0,1 0,619.2 630"
+            android:strokeWidth="36"
+            android:strokeColor="#FFFFFF"
+            android:strokeLineCap="round"
+            android:fillColor="#00000000" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M468,540a62,62 0,1 0,124 0a62,62 0,1 0,-124 0" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M726,380a26,26 0,1 0,52 0a26,26 0,1 0,-52 0" />
+    </group>
+</vector>
