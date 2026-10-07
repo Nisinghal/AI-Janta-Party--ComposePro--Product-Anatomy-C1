@@ -49,9 +49,15 @@ class FrameAnalyzer(private val context: Context, private val onResult: (FrameRe
         lastRun = now
         try {
             val light = measureLight(proxy)
+            // Full-screen camera (2026-10-07): the screen shows only part of the sensor, and the photo is cut to the same
+            // part (viewport). Detection and tracking use that same part, so boxes, dots and rings line up with the screen.
+            val crop = proxy.cropRect
             val p0 = proxy.planes[0]
-            val gray = grayFromLuma(p0.buffer, p0.rowStride, p0.pixelStride, proxy.width, proxy.height, proxy.imageInfo.rotationDegrees)
-            val image = upright(proxy.toBitmap(), proxy.imageInfo.rotationDegrees)
+            val gray = grayFromLuma(p0.buffer, p0.rowStride, p0.pixelStride, proxy.width, proxy.height, proxy.imageInfo.rotationDegrees, crop)
+            val full = proxy.toBitmap()
+            val visible = if (full.width == proxy.width && full.height == proxy.height && (crop.width() < full.width || crop.height() < full.height))
+                Bitmap.createBitmap(full, crop.left, crop.top, crop.width(), crop.height()) else full
+            val image = upright(visible, proxy.imageInfo.rotationDegrees)
             val things = steady(detect(image), now)
             Log.d(TAG, "things=${things.size} ${things.map { it.category }}")
             val r = FrameResult(things, light.meanY, light.centerY, light.clipFrac, light.warmth, gray)

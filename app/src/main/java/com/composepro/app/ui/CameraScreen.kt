@@ -57,6 +57,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
@@ -567,64 +571,75 @@ fun CameraScreen(state: AppState) {
         .pointerInput(camera) { detectTransformGestures { _, _, zoomChange, _ -> if (zoomChange != 1f) setZoom(zoom * zoomChange) } }
         .pointerInput(camera) { detectTapGestures(onTap = { focus(it) }) }
 
-    Column(Modifier.fillMaxSize().background(CP.CameraBar).statusBarsPadding()) {
-        Box(Modifier.fillMaxWidth().aspectRatio(3f / 4f).clip(CPShape.Sheet)) {
-            AndroidView({ previewView }, Modifier.fillMaxSize())
-            Box(Modifier.fillMaxSize().then(touchLayer))
-            GridLayer(state.tipsOn && !dark, Modifier.fillMaxSize())
-            ThingsLayer(if (pick != null) things.take(slots) else things, marksVisible && !photographerOn, Modifier.fillMaxSize())
-            GuideLayer(guide, slots, guideAlignment, points, guideVisible && !photographerOn, Modifier.fillMaxSize())
-            // The photographer's composition frame (thirds, triangle, spiral… from the reference images), drawn faintly.
-            coach?.advice?.frame?.let { f -> GuideLayer(f, frameSlots(f), null, emptyList(), true, Modifier.fillMaxSize()) }
-            if (!photographerOn) EdgeLayer(shown.main, shown.edge, Modifier.fillMaxSize())
-            else if (allDone) EdgeLayer(coachSubject, EdgeState.Right, Modifier.fillMaxSize())
-            CoachLayer(
-                target = ringMove?.let { P(it.targetX ?: 0.5f, it.targetY ?: 0.5f) },
-                subject = coachSubject?.let { P(it.cx, it.cy) },
-                subjectBox = if (ringMove != null) coachSubject?.box else null,
-                targetSize = ringMove?.size,
-                // The ring goes green exactly when its step does, so the two never disagree.
-                hit = steps.getOrNull(ringStep)?.done == true,
-                modifier = Modifier.fillMaxSize(),
-            )
-            if (!photographerOn) TipCapsule(shown, ::notRight, Modifier.align(Alignment.TopCenter).padding(top = CPSpace.S2, start = CPSpace.S3, end = CPSpace.S3))
-            NoteChip(if (dark) shown.phone else null, Modifier.align(Alignment.TopCenter).padding(top = CPSpace.S2))
-            val top = Modifier.align(Alignment.TopCenter).padding(top = CPSpace.S2, start = CPSpace.S3, end = CPSpace.S3)
+    // Full-screen camera (user decision 2026-10-07: "remove the space, just keep the buttons, tips and all"). The picture
+    // fills the screen and everything floats on top. The photo is cut to this same view, so what's on screen, white
+    // space included, is what's saved.
+    Box(Modifier.fillMaxSize().background(CP.CameraBar)) {
+        AndroidView({ previewView }, Modifier.fillMaxSize())
+        Box(Modifier.fillMaxSize().then(touchLayer))
+        GridLayer(state.tipsOn && !dark, Modifier.fillMaxSize())
+        ThingsLayer(if (pick != null) things.take(slots) else things, marksVisible && !photographerOn, Modifier.fillMaxSize())
+        GuideLayer(guide, slots, guideAlignment, points, guideVisible && !photographerOn, Modifier.fillMaxSize())
+        // The photographer's composition frame (thirds, centre… from the reference images), drawn faintly.
+        coach?.advice?.frame?.let { f -> GuideLayer(f, frameSlots(f), null, emptyList(), true, Modifier.fillMaxSize()) }
+        if (!photographerOn) EdgeLayer(shown.main, shown.edge, Modifier.fillMaxSize())
+        else if (allDone) EdgeLayer(coachSubject, EdgeState.Right, Modifier.fillMaxSize())
+        CoachLayer(
+            target = ringMove?.let { P(it.targetX ?: 0.5f, it.targetY ?: 0.5f) },
+            subject = coachSubject?.let { P(it.cx, it.cy) },
+            subjectBox = if (ringMove != null) coachSubject?.box else null,
+            targetSize = ringMove?.size,
+            // The ring goes green exactly when its step does, so the two never disagree.
+            hit = steps.getOrNull(ringStep)?.done == true,
+            modifier = Modifier.fillMaxSize(),
+        )
+        ZoomChip(shownZoom, now - zoomShownAt < 900, Modifier.align(Alignment.Center))
+        FocusRing(focusAt, now - focusShownAt < 1200)
+        Box(Modifier.fillMaxSize().alpha(flash.value).background(CP.OnDark))
+        Box(Modifier.fillMaxSize().alpha(cover.value).background(CP.CameraBar))
+        if (unavailable) {
+            Box(Modifier.fillMaxSize().background(CP.CameraBar).padding(CPSpace.S4), contentAlignment = Alignment.Center) {
+                Text("Camera isn't available right now. Close other apps using it and try again.", style = CPType.Body, color = CP.OnDark, textAlign = TextAlign.Center)
+            }
+        }
+
+        // Top: notes and quick tips, under the status bar
+        Column(
+            Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = CPSpace.S2, start = CPSpace.S3, end = CPSpace.S3),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            if (!photographerOn) TipCapsule(shown, ::notRight)
+            NoteChip(if (dark) shown.phone else null)
             InfoCapsule(
                 visible = scanning && !dark && !photographerOn && !auto,
                 line1 = if (count == 0 && now - scanStart > 1500) "Point at what you want to shoot." else "Looking at what's here…",
                 line2 = if (count == 0) "I'll mark everything I recognise." else "Hold still. Found ${describe(things)} so far.",
                 progress = scanProgress,
-                modifier = top,
             )
             InfoCapsule(
                 visible = explaining && !dark && !photographerOn && !auto,
                 line1 = pick?.let { "I see ${it.seen}. Let's use ${it.guide.label}." } ?: "",
                 line2 = pick?.why ?: "",
-                modifier = top,
             )
-            GuideChip(pick, guideVisible && !explaining && !photographerOn, ::lookAgain, Modifier.align(Alignment.BottomCenter).padding(bottom = CPSpace.S2))
-            ZoomChip(shownZoom, now - zoomShownAt < 900, Modifier.align(Alignment.Center))
-            FocusRing(focusAt, now - focusShownAt < 1200)
-            if (camera?.cameraInfo?.hasFlashUnit() == true) {
-                FlashButton(flashSetting, onClick = { flashSetting = flashSetting.next() }, modifier = Modifier.align(Alignment.BottomStart).padding(start = CPSpace.S2, bottom = CPSpace.S2))
-            }
-            ZoomButtons(
-                current = shownZoom, stops = zoomStops, onPick = ::pickZoom,
-                modifier = Modifier.align(Alignment.BottomEnd).padding(end = CPSpace.S2, bottom = CPSpace.S2),
-            )
-            Box(Modifier.fillMaxSize().alpha(flash.value).background(CP.OnDark))
-            Box(Modifier.fillMaxSize().alpha(cover.value).background(CP.CameraBar))
-            if (unavailable) {
-                Box(Modifier.fillMaxSize().background(CP.CameraBar).padding(CPSpace.S4), contentAlignment = Alignment.Center) {
-                    Text("Camera isn't available right now. Close other apps using it and try again.", style = CPType.Body, color = CP.OnDark, textAlign = TextAlign.Center)
-                }
-            }
-            toast?.let { GlassToast(it, Modifier.align(Alignment.BottomCenter).padding(bottom = CPSpace.S3)) }
         }
-        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-          Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            // One card, one place, under the camera view: "Finding the best shot…", then one step at a time.
+
+        // Bottom: a soft dark fade so the controls read over any picture, then flash + zoom, the steps, the shutter row
+        Column(
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f))))
+                .navigationBarsPadding().padding(top = CPSpace.S4, bottom = CPSpace.S3),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            toast?.let { GlassToast(it, Modifier.padding(bottom = CPSpace.S2)) }
+            GuideChip(pick, guideVisible && !explaining && !photographerOn, ::lookAgain, Modifier.padding(bottom = CPSpace.S2))
+            Row(
+                Modifier.fillMaxWidth().padding(start = CPSpace.S2, end = CPSpace.S2, bottom = CPSpace.S2),
+                horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (camera?.cameraInfo?.hasFlashUnit() == true) FlashButton(flashSetting, onClick = { flashSetting = flashSetting.next() })
+                else Spacer(Modifier.size(1.dp))
+                ZoomButtons(current = shownZoom, stops = zoomStops, onPick = ::pickZoom)
+            }
             val cardSpot = Modifier.padding(start = CPSpace.S2, end = CPSpace.S2, bottom = CPSpace.S3)
             if (coach == null && photographerOn) FindingCard(cardSpot)
             coach?.let {
@@ -656,7 +671,6 @@ fun CameraScreen(state: AppState) {
                     contentAlignment = Alignment.Center,
                 ) { Icon(Icons.Filled.Settings, "Settings", tint = CP.OnDark, modifier = Modifier.size(20.dp)) }
             }
-          }
         }
     }
 }

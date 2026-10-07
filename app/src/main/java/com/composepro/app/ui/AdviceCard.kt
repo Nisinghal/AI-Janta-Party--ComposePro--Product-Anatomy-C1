@@ -63,7 +63,7 @@ fun CoachCard(
     val allDone = ready || (steps.isNotEmpty() && steps.all { it.done })
     val current = steps.indexOfFirst { !it.done }
     Column(
-        modifier.widthIn(max = 420.dp).fillMaxWidth().clip(CPShape.Card).background(CP.Glass)
+        modifier.widthIn(max = 420.dp).fillMaxWidth().clip(CPShape.Card).background(CP.Glass.copy(alpha = 0.9f))
             .padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 12.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -136,7 +136,7 @@ fun CoachCard(
 @Composable
 fun FindingCard(modifier: Modifier = Modifier) {
     Row(
-        modifier.widthIn(max = 420.dp).fillMaxWidth().clip(CPShape.Card).background(CP.Glass)
+        modifier.widthIn(max = 420.dp).fillMaxWidth().clip(CPShape.Card).background(CP.Glass.copy(alpha = 0.9f))
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

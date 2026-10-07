@@ -133,7 +133,13 @@ class Tracker {
 }
 
 /** Builds a [Gray] of [outW]×[outH] from a camera Y plane, turned upright by [rotation] (same turn as the detector's image). */
-fun grayFromLuma(y: java.nio.ByteBuffer, rowStride: Int, pixStride: Int, srcW: Int, srcH: Int, rotation: Int, outW: Int = 96, outH: Int = 128): Gray {
+fun grayFromLuma(
+    y: java.nio.ByteBuffer, rowStride: Int, pixStride: Int, srcW: Int, srcH: Int, rotation: Int,
+    crop: android.graphics.Rect = android.graphics.Rect(0, 0, srcW, srcH), outW: Int = 96,
+): Gray {
+    // Only the visible part (crop), keeping its upright shape: 96 wide and as tall as that shape needs.
+    val uprightAspect = if (rotation % 180 == 0) crop.width().toFloat() / crop.height() else crop.height().toFloat() / crop.width()
+    val outH = (outW / uprightAspect).toInt().coerceIn(96, 240)
     val px = ByteArray(outW * outH)
     for (v in 0 until outH) for (u in 0 until outW) {
         val fx = (u + 0.5f) / outW; val fy = (v + 0.5f) / outH
@@ -143,8 +149,8 @@ fun grayFromLuma(y: java.nio.ByteBuffer, rowStride: Int, pixStride: Int, srcW: I
             270 -> 1f - fy to fx
             else -> fx to fy
         }
-        val x = min(srcW - 1, max(0, (sx * srcW).toInt()))
-        val yy = min(srcH - 1, max(0, (sy * srcH).toInt()))
+        val x = min(srcW - 1, max(0, crop.left + (sx * crop.width()).toInt()))
+        val yy = min(srcH - 1, max(0, crop.top + (sy * crop.height()).toInt()))
         px[v * outW + u] = y.get(yy * rowStride + x * pixStride)
     }
     return Gray(outW, outH, px)

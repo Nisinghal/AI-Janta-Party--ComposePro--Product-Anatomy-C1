@@ -35,13 +35,12 @@ fun ReviewScreen(state: AppState) {
         Modifier.fillMaxSize().background(CP.Surface).safeDrawingPadding().padding(start = CPSpace.S3, end = CPSpace.S3, top = CPSpace.S3, bottom = CPSpace.S4),
         verticalArrangement = Arrangement.spacedBy(CPSpace.S3),
     ) {
-        // The whole photo, in the camera view's own 3:4 shape. It used to fill a taller box and get its sides trimmed,
-        // so the subject looked bigger than on the camera screen (group feedback 2026-10-07, watch screenshots).
+        // The whole photo, never trimmed: it used to be cropped to fill its box, so the subject looked bigger than on
+        // the camera screen (group feedback 2026-10-07, watch screenshots). Same white space before and after.
         PhotoImage(
-            photo.uri, 1600, Modifier.fillMaxWidth().aspectRatio(3f / 4f).clip(CPShape.Sheet),
+            photo.uri, 1600, Modifier.weight(1f).fillMaxWidth(),
             contentScale = ContentScale.Fit, description = "The photo you just took",
         )
-        Spacer(Modifier.weight(1f))
         Column(verticalArrangement = Arrangement.spacedBy(CPSpace.S2)) {
             photo.tipReminder?.let { Text("The tip was: $it", style = CPType.Caption, color = CP.Muted) }
             Row(horizontalArrangement = Arrangement.spacedBy(CPSpace.S2)) {
