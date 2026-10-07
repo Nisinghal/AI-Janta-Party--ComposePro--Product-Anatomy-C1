@@ -326,25 +326,20 @@ fun FocusRing(at: Offset?, visible: Boolean) {
     }
 }
 
-/** Quick zoom like a phone's own camera: 1× and 2× (only if the camera can zoom that far). The current one is filled. */
+/** Quick zoom like a phone's own camera: 0.5× (wide lens, if any), 1× and 2×. The current one is filled. */
 @Composable
-fun ZoomButtons(zoom: Float, maxZoom: Float, onZoom: (Float) -> Unit, modifier: Modifier = Modifier) {
-    val stops = listOf(1f, 2f).filter { it <= maxZoom + 0.01f }
+fun ZoomButtons(current: Float, stops: List<Float>, onPick: (Float) -> Unit, modifier: Modifier = Modifier) {
     if (stops.size < 2) return
     Row(modifier.clip(CPShape.Pill).background(CP.Glass).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         stops.forEach { z ->
-            val on = kotlin.math.abs(zoom - z) < 0.15f
+            val on = kotlin.math.abs(current - z) < z * 0.12f
+            val label = if (z < 1f) String.format(java.util.Locale.US, "%.1f×", z) else "${z.toInt()}×"
             Box(
                 Modifier.size(40.dp).clip(CPShape.Pill).background(if (on) CP.OnDark else Color.Transparent)
-                    .clickable(role = Role.Button) { onZoom(z) }
-                    .semantics { contentDescription = "Zoom ${z.toInt()} times" },
+                    .clickable(role = Role.Button) { onPick(z) }
+                    .semantics { contentDescription = "Zoom $label" },
                 contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    "${z.toInt()}×",
-                    style = CPType.CaptionMedium, color = if (on) CP.Ink else CP.OnDark,
-                )
-            }
+            ) { Text(label, style = CPType.CaptionMedium, color = if (on) CP.Ink else CP.OnDark) }
         }
     }
 }
