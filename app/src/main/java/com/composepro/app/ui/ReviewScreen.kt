@@ -42,7 +42,7 @@ fun ReviewScreen(state: AppState) {
             contentScale = ContentScale.Fit, description = "The photo you just took",
         )
         Column(verticalArrangement = Arrangement.spacedBy(CPSpace.S2)) {
-            photo.tipReminder?.let { Text("The tip was: $it", style = CPType.Caption, color = CP.Muted) }
+            photo.tipReminder?.let { Text(it, style = CPType.Caption, color = CP.Muted) }
             Row(horizontalArrangement = Arrangement.spacedBy(CPSpace.S2)) {
                 PillButton("Keep", { state.markHadPhotos(); state.pending = null; state.screen = Screen.Camera }, Modifier.weight(1f))
                 PillButton("Take again", {

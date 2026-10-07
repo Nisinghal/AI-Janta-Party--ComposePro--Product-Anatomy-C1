@@ -283,10 +283,13 @@ fun CameraScreen(state: AppState) {
     val guideVisible = marksVisible && pick != null
     val scanProgress = ((now - scanStart).toFloat() / SCAN_MS).coerceIn(0f, 1f)
 
+    // The line under the photo on Review. Set further down, once the photographer's steps are known.
+    val reviewLine = remember { mutableStateOf<String?>(null) }
+
     fun takePhoto() {
         if (taking || unavailable) return
         taking = true
-        val reminder = if (shown.isTip) shown.remind else null
+        val reminder = reviewLine.value
         val name = frame?.let { f -> thingName(f.things.firstOrNull()?.category) } ?: "Photo"
         scope.launch { flash.snapTo(0.85f); flash.animateTo(0f, tween(180)) }
         imageCapture.takePicture(
@@ -469,6 +472,18 @@ fun CameraScreen(state: AppState) {
     /** The photographer owns the screen: its card is up, or it's about to be (asking, no failure, not closed). */
     val photographerOn = coach != null || (auto && askError == null && closedFor != scanStart && !dark)
     SideEffect { planUp.value = coach != null }
+    // Group feedback (2026-10-07): Review said "The tip was: turn so the light falls on it" right after the
+    // photographer's card said "All done". That was a hidden quick tip from the older tip system. While the
+    // photographer is on, Review now reports its steps; a quick tip is only mentioned when it was actually on screen.
+    SideEffect {
+        reviewLine.value = when {
+            coach != null && steps.isNotEmpty() ->
+                if (allDone) "You did all ${steps.size} steps." else "${steps.count { it.done }} of ${steps.size} steps done."
+            photographerOn -> null
+            shown.isTip && state.tipsOn -> "The tip was: ${shown.remind}"
+            else -> null
+        }
+    }
 
     // ---- Automatic (user decisions, 2026-10-06): no buttons. The photographer is asked as soon as the view has been
     // up for 0.8s (not after the 3-second look: too slow). Steps the phone can't measure are re-checked by themselves
