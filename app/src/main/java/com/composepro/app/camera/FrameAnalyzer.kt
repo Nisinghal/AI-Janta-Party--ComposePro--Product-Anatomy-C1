@@ -42,6 +42,7 @@ class FrameAnalyzer(private val context: Context, private val onResult: (FrameRe
     private val mainThread = ContextCompat.getMainExecutor(context)
     private var detector: ObjectDetector? = null
     private var lastRun = 0L
+    private var lastView: RectF? = null
 
     override fun analyze(proxy: ImageProxy) {
         val now = SystemClock.elapsedRealtime()
@@ -50,16 +51,24 @@ class FrameAnalyzer(private val context: Context, private val onResult: (FrameRe
         try {
             val light = measureLight(proxy)
             // Full-screen camera (2026-10-07): the screen shows only part of the sensor, and the photo is cut to the same
-            // part (viewport). Detection and tracking use that same part, so boxes, dots and rings line up with the screen.
+            // part (viewport). The tracker's grey copy is that part; detection boxes are converted to it (below), so boxes,
+            // dots and rings line up with the screen.
             val crop = proxy.cropRect
             val p0 = proxy.planes[0]
             val gray = grayFromLuma(p0.buffer, p0.rowStride, p0.pixelStride, proxy.width, proxy.height, proxy.imageInfo.rotationDegrees, crop)
+            // The detector looks at the whole 3:4 picture, as before the full-screen camera. Given only the tall visible
+            // strip, the model (square input) saw everything squeezed sideways and found far fewer things (user test
+            // 2026-10-07: "the outline was working two updates before"). Its boxes are then moved into the visible area.
             val full = proxy.toBitmap()
-            val visible = if (full.width == proxy.width && full.height == proxy.height && (crop.width() < full.width || crop.height() < full.height))
-                Bitmap.createBitmap(full, crop.left, crop.top, crop.width(), crop.height()) else full
-            val image = upright(visible, proxy.imageInfo.rotationDegrees)
-            val things = steady(detect(image), now)
-            Log.d(TAG, "things=${things.size} ${things.map { it.category }}")
+            val alreadyCropped = full.width != proxy.width || full.height != proxy.height
+            val image = upright(full, proxy.imageInfo.rotationDegrees)
+            val view = if (alreadyCropped) RectF(0f, 0f, 1f, 1f) else visibleArea(crop, proxy.width, proxy.height, proxy.imageInfo.rotationDegrees)
+            val things = steady(toVisible(detect(image), view), now)
+            if (view != lastView) {
+                lastView = view
+                Log.i(TAG, "Visible area: crop=$crop of ${proxy.width}x${proxy.height}, rotation ${proxy.imageInfo.rotationDegrees}, bitmap ${full.width}x${full.height} -> $view")
+            }
+            Log.d(TAG, "things=${things.size} ${things.map { "${it.category}${it.box.toShortString()}" }}")
             val r = FrameResult(things, light.meanY, light.centerY, light.clipFrac, light.warmth, gray)
             mainThread.execute { onResult(r) }
         } catch (e: Exception) {
@@ -84,6 +93,33 @@ class FrameAnalyzer(private val context: Context, private val onResult: (FrameRe
     } catch (e: Exception) {
         Log.e(TAG, "couldn't load the detection model", e)
         null
+    }
+
+    /** The visible (cropped) area as fractions of the upright full picture. */
+    private fun visibleArea(crop: android.graphics.Rect, w: Int, h: Int, rotation: Int): RectF {
+        val l = crop.left / w.toFloat(); val t = crop.top / h.toFloat()
+        val r = crop.right / w.toFloat(); val b = crop.bottom / h.toFloat()
+        return when (rotation) {
+            90 -> RectF(1 - b, l, 1 - t, r)
+            180 -> RectF(1 - r, 1 - b, 1 - l, 1 - t)
+            270 -> RectF(t, 1 - r, b, 1 - l)
+            else -> RectF(l, t, r, b)
+        }
+    }
+
+    /** Boxes from the whole picture → fractions of the visible area. Things mostly outside the screen are left out. */
+    private fun toVisible(found: List<Found>, view: RectF): List<Found> {
+        if (view.left <= 0f && view.top <= 0f && view.right >= 1f && view.bottom >= 1f) return found
+        return found.mapNotNull { f ->
+            val b = f.box
+            val inside = insideShare(b, view)
+            if (inside < 0.4f) return@mapNotNull null
+            val m = RectF(
+                ((b.left - view.left) / view.width()).coerceIn(0f, 1f), ((b.top - view.top) / view.height()).coerceIn(0f, 1f),
+                ((b.right - view.left) / view.width()).coerceIn(0f, 1f), ((b.bottom - view.top) / view.height()).coerceIn(0f, 1f),
+            )
+            Found(m, f.name, f.score)
+        }
     }
 
     /** Small and upright, so boxes come back in the same orientation as the preview. */
