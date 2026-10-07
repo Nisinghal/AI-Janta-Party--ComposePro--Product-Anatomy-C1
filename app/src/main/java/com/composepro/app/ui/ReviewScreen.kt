@@ -3,6 +3,9 @@ package com.composepro.app.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -32,7 +35,13 @@ fun ReviewScreen(state: AppState) {
         Modifier.fillMaxSize().background(CP.Surface).safeDrawingPadding().padding(start = CPSpace.S3, end = CPSpace.S3, top = CPSpace.S3, bottom = CPSpace.S4),
         verticalArrangement = Arrangement.spacedBy(CPSpace.S3),
     ) {
-        PhotoImage(photo.uri, 1600, Modifier.weight(1f).fillMaxWidth().clip(CPShape.Sheet), description = "The photo you just took")
+        // The whole photo, in the camera view's own 3:4 shape. It used to fill a taller box and get its sides trimmed,
+        // so the subject looked bigger than on the camera screen (group feedback 2026-10-07, watch screenshots).
+        PhotoImage(
+            photo.uri, 1600, Modifier.fillMaxWidth().aspectRatio(3f / 4f).clip(CPShape.Sheet),
+            contentScale = ContentScale.Fit, description = "The photo you just took",
+        )
+        Spacer(Modifier.weight(1f))
         Column(verticalArrangement = Arrangement.spacedBy(CPSpace.S2)) {
             photo.tipReminder?.let { Text("The tip was: $it", style = CPType.Caption, color = CP.Muted) }
             Row(horizontalArrangement = Arrangement.spacedBy(CPSpace.S2)) {
