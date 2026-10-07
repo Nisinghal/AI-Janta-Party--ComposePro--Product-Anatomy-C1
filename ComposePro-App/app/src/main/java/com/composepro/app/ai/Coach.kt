@@ -36,7 +36,8 @@ private const val SIZE_SLACK = 0.15f
  * Is this move satisfied right now, judged by the phone itself? Null when the phone can't tell
  * (light, background, moving things), so only "Check my shot" can tick it.
  */
-fun liveCheck(move: Move, tilt: Tilt, subject: Thing?): Boolean? = when (move.check) {
+fun liveCheck(move: Move, tilt: Tilt, subject: Thing?, zoom: Float): Boolean? = when (move.check) {
+    CheckBy.Zoom -> move.zoom?.let { abs(zoom - it) <= it * 0.15f }
     CheckBy.Angle -> if (tilt == Tilt.Unknown) null else when (move.angle) {
         ShotAngle.Above -> tilt.offFlatDeg < 25f
         ShotAngle.Diner -> tilt.offFlatDeg in 20f..75f

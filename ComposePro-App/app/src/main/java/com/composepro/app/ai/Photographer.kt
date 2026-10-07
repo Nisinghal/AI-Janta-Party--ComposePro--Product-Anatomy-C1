@@ -24,7 +24,10 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 /** How a move can be checked: by the phone's tilt sensor, by where the subject sits in the frame, or only by asking again. */
-enum class CheckBy { Angle, Frame, Other }
+enum class CheckBy { Angle, Frame, Zoom, Other }
+
+/** What sort of photo it is: things on a table that can be moved, a scene, or an animal/person. */
+enum class ShotKind { TableTop, Scene, Living }
 
 /** The phone angle a move asks for. */
 enum class ShotAngle { Above, Diner, Eye }
@@ -42,6 +45,8 @@ data class Move(
     val targetX: Float? = null,
     val targetY: Float? = null,
     val size: Float? = null,
+    /** For [CheckBy.Zoom]: the zoom level to tap (e.g. 2). */
+    val zoom: Float? = null,
 )
 
 /** What the photographer says about one frame. [subjectBox] is where the subject is now (fractions of the frame), if it said. */
@@ -54,6 +59,7 @@ data class Advice(
     /** The composition frame from the reference images that this shot is built on, drawn over the camera view. */
     val frame: Guide? = null,
     val frameWhy: String = "",
+    val kind: ShotKind = ShotKind.TableTop,
 )
 
 /** How many spots each frame is laid out with, so the drawn spots and the photographer's targets are the same ones. */
@@ -144,59 +150,69 @@ object Photographer {
 
     private val ASK_SYSTEM = PERSONA + "\n\n" + """
         Look at the frame like a photographer: what the photo is about, the background (mess, distractions, things cut
-        off at the edges), the light (direction, harshness, colour, shadows on the subject), the angle and height of the
-        phone, how much space is around the subject, whether lines are straight, and whether anything could be moved or
-        removed to make it cleaner.
+        off at the edges), the light (direction, harshness, colour, shadows on the subject), the angle of the phone, how
+        much space is around the subject, whether lines are straight, and whether anything could be moved or removed.
 
-        First decide what kind of shot this is, because the moves differ:
-        - a table-top: food, drinks or small things they can pick up. They can move things and the phone.
-        - a scene: a tree, building, street, room, landscape or sky. Nothing can be moved; only the phone (step left,
-          right, back, crouch, tilt). Keep the whole main subject in (a whole tree, the top of a building), keep upright
-          lines straight and the horizon level, and leave some sky or ground around it. Never suggest filling the picture
-          with ground, floor or sky.
-        - an animal or a person: only the phone; keep their head in, leave space on the side they face.
+        First decide the kind of shot (set kind):
+        - "tabletop": food, drinks or small things they can pick up. They can move things and the phone.
+        - "scene": a tree, building, street, road, bridge, room, landscape or sky. Nothing can be moved; only the phone.
+          Keep the whole main subject in, keep upright lines straight and the horizon level, leave some sky or ground
+          around it. Never suggest filling the picture with ground, floor or sky.
+        - "living": an animal or a person. Only the phone; keep their head in, leave space on the side they face.
         Pick ONE main subject (the thing the person is clearly pointing at) and build every move around it.
-        All moves must agree with each other and with the chosen frame: never ask to include something in one move and
-        remove it in another, and never give two moves that place the subject in different spots.
-        Only ask for moves that are physically possible from where the phone is: don't ask to lower the phone below the
-        table or ground the subject stands on, and if the phone is already close to the right height, don't ask again.
 
-        Give only moves they can do in the next 10 seconds: move or tilt the phone, step closer or back, change height,
-        turn toward or away from the light, move or remove small things in front of them, change what is behind the
-        subject. Never suggest editing apps, filters, buying gear, changing camera settings or tapping the screen.
-        The frame may be a little blurred because the phone is moving while they aim; ignore that kind of blur.
-        Only mention people if you can clearly see a person.
-        Be specific to THIS frame: name the real things you see ("the blue bowl", "the bedsheet behind the vase").
+        Angle (the person's group found the old advice pushed "straight down" far too often):
+        - Straight down ("above") ONLY for flat things seen best from the top: a pizza, a flat lay of several dishes, a
+          book or a laptop keyboard, a plate whose food is flat.
+        - 30 to 45 degrees ("diner") is the default for most dishes, drinks, cakes and objects: it shows top, side and depth.
+        - Eye level ("eye") for tall things (bottles, glasses, burgers, vases, plants, watches standing up), animals, and
+          most scenes.
+        If the phone's current angle already suits the subject, do NOT give an angle move.
+
+        Getting closer (moving in too far made photos distorted, shadowed by the phone and out of focus):
+        - To make a small subject bigger, prefer zoom: a "zoom" move like "Tap 2× at the bottom-right" (only zoom levels
+          this phone offers, listed below). Only ask to step closer if the phone is clearly far away.
+        - Never ask for the subject to fill more than 60% of the picture's height; keep some space around it.
+        - Keep the phone at least about 25 cm from small things, and watch for the phone's own shadow falling on them.
+
+        Moves must be plain physical actions with the phone or the things in front of them: "step left", "step back",
+        "crouch a little", "tilt the phone up", "tap 2×", "move the cup to the right", "turn so the window is beside you".
+        Never ask them to line real things up with a drawn line ("align the street with the diagonal", "lead from corner
+        to corner"); people can't map a 3D scene onto a 2D line.
+        All moves must agree with each other: never include something in one move and remove it in another, never send
+        the subject to two different spots. Only ask for possible moves: not below the table or ground the subject
+        stands on, and if the phone is already close to the right height, don't ask again.
+        Give only moves they can do in the next 10 seconds. Never suggest editing apps, filters, buying gear, changing
+        camera settings (other than the zoom buttons) or tapping the screen. Ignore slight blur from a moving phone.
+        Only mention people if you can clearly see a person. Name the real things you see ("the blue bowl").
         Give 2 or 3 moves, most important first; each action at most 12 words, each reason at most 15 words.
         One idea per move, so each can be checked on its own.
 
-        First choose ONE composition frame for this shot, from the ones the person learned from (their reference images
-        of café and food shots, extended to any object). Each frame has fixed spots, as (x, y) with 0 = left/top:
-        - "thirds": the 3x3 grid; cross points (0.33, 0.33), (0.67, 0.33), (0.33, 0.67), (0.67, 0.67). One subject a
-          little off-centre; animals with space on the side they face; tall things; landscapes on a line.
-        - "centre": one spot (0.5, 0.45). One strong, round or symmetrical subject, especially from straight above.
-        - "front_back": big thing in front (0.42, 0.63), smaller thing behind (0.62, 0.36). Two things, one bigger.
-        - "diagonal": spots along the corner-to-corner line (0.29, 0.33), (0.5, 0.5), (0.71, 0.67). Two or three things.
+        Then choose ONE composition frame. Follow how the person is already framing: pick the frame that needs the
+        smallest change, and the simplest one that works. Each frame has fixed spots, as (x, y) with 0 = left/top:
+        - "thirds": cross points (0.33, 0.33), (0.67, 0.33), (0.33, 0.67), (0.67, 0.67). One subject a little off-centre.
+        - "centre": one spot (0.5, 0.45). One strong, symmetrical or head-on subject (also roads and bridges seen
+          straight down their length).
+        Only for a TABLETOP with several things that can be arranged, also:
+        - "front_back": big thing in front (0.42, 0.63), smaller thing behind (0.62, 0.36).
+        - "diagonal": (0.29, 0.33), (0.5, 0.5), (0.71, 0.67). Two or three things in a line.
         - "triangle": (0.5, 0.3), (0.28, 0.68), (0.72, 0.68). Exactly three things.
-        - "grid": rows of spots (0.33, 0.35), (0.67, 0.35), (0.33, 0.63), (0.67, 0.63). Many of the same thing.
-        - "circle": hero in the middle (0.5, 0.48), the rest around it. One big thing with smaller ones.
-        - "spiral": golden spiral; the hero in its eye (0.62, 0.40), others along the curve. A busy spread.
-        Set frame, and frame_why in at most 10 plain words ("One subject looks more alive a little off-centre").
-        Every "frame" move below must put its target_x/target_y on one of that frame's spots, and the action should say
-        it in plain words ("Put the statue on the left cross of the grid", "Move the phone so the cup is in the middle").
-        Use the spot nearest to where the subject already is, so the move is small. Give at most ONE "frame" move.
-        For a big subject that fills most of the picture (a tall tree, a building), place it on a third LINE (move it
-        left or right) rather than its middle on a cross point.
+        - "grid": (0.33, 0.35), (0.67, 0.35), (0.33, 0.63), (0.67, 0.63). Many of the same thing.
+        - "circle": hero in the middle (0.5, 0.48), the rest around it.
+        - "spiral": hero at (0.62, 0.40), others along the curve. A busy spread.
+        A scene or a living subject always uses "thirds" or "centre".
+        Set frame, and frame_why in at most 10 plain words.
+        A "frame" move puts target_x/target_y on the frame's spot nearest to where the subject already is, and says it
+        as a phone action ("Step right so the tree sits on the left grid line"). At most ONE "frame" move. A big subject
+        that fills most of the picture moves sideways onto a third LINE, not its middle onto a cross point.
 
         For each move say how it can be checked:
-        - check "angle" if the move is only about the phone's height or tilt; set angle to "above" (phone flat, looking
-          straight down), "diner" (tilted, like sitting at a table) or "eye" (phone upright at the subject's height).
-        - check "frame" if the move is about where the subject sits in the picture or how big it is (centre it, put it
-          on the left, higher, lower, closer, fill the picture, "lower the phone so it's in the middle"...). This is
-          required for any such move, even if it also mentions the phone. Set target_x and target_y to where the centre
-          of the subject should end up (0 = left/top, 1 = right/bottom; the centre is 0.5, 0.5) and size to how much of
-          the picture's height it should fill (0 to 1). The person sees a circle at that spot and a dot on the subject.
-        - check "other" for everything else (light, background, moving or removing things).
+        - check "angle" if the move is only about the phone's tilt; set angle to "above", "diner" or "eye".
+        - check "zoom" if the move is to tap a zoom button; set zoom to that level (e.g. 2).
+        - check "frame" if the move is about where the subject sits in the picture or how big it is. Set target_x,
+          target_y (0 = left/top, 1 = right/bottom) and size (share of the picture's height, at most 0.6). The person
+          sees a circle at that spot and a dot on the subject.
+        - check "other" for everything else (light, background, moving or removing things, height).
         Always give subject_box: where the subject is now, as [ymin, xmin, ymax, xmax] from 0 to 1000, tight around it.
         If the frame is already good, say so, set ready to true and give no moves.
     """.trimIndent()
@@ -215,6 +231,7 @@ object Photographer {
           "seen":{"type":"STRING","description":"What is in the frame, in one plain sentence (max 20 words)"},
           "subject":{"type":"STRING","description":"The subject the photo should be about, in a few words"},
           "ready":{"type":"BOOLEAN","description":"True only if the frame is already a good photo and needs no moves"},
+          "kind":{"type":"STRING","enum":["tabletop","scene","living"]},
           "frame":{"type":"STRING","enum":["thirds","centre","front_back","diagonal","triangle","grid","circle","spiral"]},
           "frame_why":{"type":"STRING","description":"Why this frame, max 10 plain words"},
           "subject_box":{"type":"ARRAY","items":{"type":"INTEGER"},"description":"Where the subject is now: [ymin, xmin, ymax, xmax], 0 to 1000"},
@@ -222,13 +239,14 @@ object Photographer {
             "type":"OBJECT","properties":{
               "action":{"type":"STRING","description":"The move as a short instruction, max 12 words"},
               "why":{"type":"STRING","description":"Why it makes the photo better, max 15 words"},
-              "check":{"type":"STRING","enum":["angle","frame","other"]},
+              "check":{"type":"STRING","enum":["angle","zoom","frame","other"]},
+              "zoom":{"type":"NUMBER","description":"Only when check is zoom: the zoom button to tap, e.g. 2"},
               "angle":{"type":"STRING","enum":["above","diner","eye"],"description":"Only when check is angle"},
               "target_x":{"type":"NUMBER","description":"Only when check is frame: where the subject's centre should be, 0 left to 1 right"},
               "target_y":{"type":"NUMBER","description":"Only when check is frame: 0 top to 1 bottom"},
               "size":{"type":"NUMBER","description":"Only when check is frame: share of the picture's height the subject should fill"}},
             "required":["action","why","check"]}}},
-         "required":["seen","subject","ready","frame","moves"]}
+         "required":["seen","subject","ready","kind","frame","moves"]}
         """,
     )
 
@@ -368,10 +386,14 @@ object Photographer {
             // Gemini's own box order: [ymin, xmin, ymax, xmax] on a 0–1000 scale.
             RectF(b.getDouble(1).toFloat() / 1000f, b.getDouble(0).toFloat() / 1000f, b.getDouble(3).toFloat() / 1000f, b.getDouble(2).toFloat() / 1000f)
         }
-        val frame = when (o.optString("frame")) {
+        val kind = when (o.optString("kind")) { "scene" -> ShotKind.Scene; "living" -> ShotKind.Living; else -> ShotKind.TableTop }
+        val asked = when (o.optString("frame")) {
             "thirds" -> Guide.Thirds; "centre" -> Guide.Centre; "front_back" -> Guide.FrontBack; "diagonal" -> Guide.Diagonal
             "triangle" -> Guide.Triangle; "grid" -> Guide.Grid; "circle" -> Guide.Circle; "spiral" -> Guide.Spiral; else -> null
         }
+        // Arrangement frames are for things on a table. A street or a bridge got a diagonal line to "align" with, which
+        // nobody could follow (group feedback 2026-10-07), so scenes and living subjects only get thirds or centre.
+        val frame = if (kind != ShotKind.TableTop && asked != null && asked != Guide.Thirds && asked != Guide.Centre) Guide.Thirds else asked
         // Targets sit exactly on the drawn frame: snap each to the frame's nearest spot when it's close. On the thirds
         // grid any cross will do, so use the one nearest the subject (a classmate saw a tree being sent to the top corner,
         // 2026-10-06); a subject taller than half the picture only moves sideways onto a third line.
@@ -394,7 +416,8 @@ object Photographer {
             ready = o.optBoolean("ready"),
             moves = (0 until moves.length()).map { i ->
                 val m = moves.getJSONObject(i)
-                val check = when (m.optString("check")) { "angle" -> CheckBy.Angle; "frame" -> CheckBy.Frame; else -> CheckBy.Other }
+                val check = when (m.optString("check")) { "angle" -> CheckBy.Angle; "frame" -> CheckBy.Frame; "zoom" -> CheckBy.Zoom; else -> CheckBy.Other }
+                val zoomTo = if (m.has("zoom")) m.optDouble("zoom").toFloat().takeIf { it in 0.4f..10f } else null
                 val angle = when (m.optString("angle")) { "above" -> ShotAngle.Above; "diner" -> ShotAngle.Diner; "eye" -> ShotAngle.Eye; else -> null }
                 fun frac(key: String) = if (m.has(key)) m.optDouble(key).toFloat().takeIf { it in 0f..1f } else null
                 val (sx, sy) = snap(frac("target_x"), frac("target_y"))
@@ -405,17 +428,21 @@ object Photographer {
                     // A check the phone can't actually do falls back to "ask again".
                     check = when {
                         check == CheckBy.Angle && angle == null -> CheckBy.Other
+                        check == CheckBy.Zoom && zoomTo == null -> CheckBy.Other
                         check == CheckBy.Frame && (tx == null || ty == null) -> CheckBy.Other
                         // Only one position move: a second one would pull the subject to another spot.
                         check == CheckBy.Frame && frameMoves++ > 0 -> CheckBy.Other
                         else -> check
                     },
-                    angle = angle, targetX = tx, targetY = ty, size = frac("size"),
+                    // Never ask for more than 60% of the height: closer than that pushed people into distortion,
+                    // their own shadow and out-of-focus shots (group feedback 2026-10-07).
+                    angle = angle, targetX = tx, targetY = ty, size = frac("size")?.coerceAtMost(0.6f), zoom = zoomTo,
                 )
             }.filter { it.action.isNotBlank() }.take(3),
             subjectBox = box,
             frame = frame,
             frameWhy = o.optString("frame_why"),
+            kind = kind,
         )
     } catch (e: Exception) {
         null
