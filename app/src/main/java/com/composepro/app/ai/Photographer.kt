@@ -319,7 +319,9 @@ object Photographer {
             )
             .put(
                 "generationConfig",
-                JSONObject().put("responseMimeType", "application/json").put("responseSchema", schema).apply {
+                // temperature 0: the same scene gets the same steps, instead of a slightly different answer each time
+                // (group feedback round 3: instructions still changing).
+                JSONObject().put("responseMimeType", "application/json").put("responseSchema", schema).put("temperature", 0).apply {
                     THINKING[thinkingFor[model] ?: 0]?.let { put("thinkingConfig", it) }
                 },
             )

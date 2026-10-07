@@ -56,7 +56,7 @@ data class StepView(val move: Move, val done: Boolean, val live: Boolean, val no
 @Composable
 fun CoachCard(
     frame: String?, frameWhy: String, steps: List<StepView>, ready: Boolean, checking: Boolean, error: String?,
-    onClose: () -> Unit, onTick: (Int) -> Unit, onNewSteps: () -> Unit, modifier: Modifier = Modifier,
+    onClose: () -> Unit, onTick: (Int) -> Unit, onNewSteps: () -> Unit, newScene: Boolean = false, modifier: Modifier = Modifier,
 ) {
     // All steps at once under the camera view (user request, 2026-10-06). The one to do now is bold and carries its
     // hint; the camera view only shows the ring/box for that one.
@@ -114,6 +114,12 @@ fun CoachCard(
                     }
                 }
             }
+        }
+        if (newScene) {
+            Text(
+                "Pointing at something new? Tap ↻ for fresh steps.", style = CPType.CaptionMedium, color = CP.OnDark,
+                modifier = Modifier.padding(top = 8.dp).clickable(role = Role.Button, onClick = onNewSteps),
+            )
         }
         if (!allDone && steps.size > 1) {
             Text("Can't do a step? Tap it to tick it off.", style = CPType.Caption, color = CP.OnDark.copy(alpha = 0.55f), modifier = Modifier.padding(top = 8.dp))

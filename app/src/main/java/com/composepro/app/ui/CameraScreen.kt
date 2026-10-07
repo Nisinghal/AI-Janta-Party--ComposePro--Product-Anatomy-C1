@@ -326,6 +326,8 @@ fun CameraScreen(state: AppState) {
     val manualDone = remember { mutableStateMapOf<Int, Boolean>() }
     // What the view looked like when the plan arrived, to notice when they've turned to something else.
     var planGray by remember { mutableStateOf<Gray?>(null) }
+    // Looks like they've turned to something else: the card suggests ↻ (the steps stay until they tap it).
+    var newScene by remember { mutableStateOf(false) }
     // When the phone has been held still (frame-to-frame change small) — following a step means moving.
     var lastGray by remember { mutableStateOf<Gray?>(null) }
     var steadySince by remember { mutableLongStateOf(0L) }
@@ -383,7 +385,7 @@ fun CameraScreen(state: AppState) {
                     streak.clear(); liveOk.clear(); checkError = null
                     val trusted = r.value.moves.map { it.check != CheckBy.Angle || liveCheck(it, tiltNow, subject, shownZoom) != true }
                     planScene = coarseScene(frame, tilt); planAt = SystemClock.elapsedRealtime(); lostSince = 0L
-                    planGray = frame?.gray; manualDone.clear()
+                    planGray = frame?.gray; manualDone.clear(); newScene = false
                     coach = Coach(r.value, subject?.id, liveTrusted = trusted)
                 }
                 is Reply.Failed -> {
@@ -499,10 +501,9 @@ fun CameraScreen(state: AppState) {
         // Otherwise the ↻ on the card does it.
         val looksDifferent = coarseScene(frame, tilt) != planScene || differs(frame?.gray, planGray) > 40f
         val heldStill = steadySince != 0L && now - steadySince > 1_500
-        if (lostSince != 0L && now - lostSince > 5_000 && now - planAt > 8_000 && heldStill && looksDifferent) {
-            closeCoach(); askedFor = -1L
-            return@LaunchedEffect
-        }
+        // Group feedback round 3 (2026-10-07): still "changes the instructions sometimes", and any change is a problem.
+        // So the steps are never replaced by the app any more: when it looks like a new scene it only suggests ↻.
+        newScene = lostSince != 0L && now - lostSince > 5_000 && now - planAt > 8_000 && heldStill && looksDifferent
         if (allDone) return@LaunchedEffect
         if (steps.none { !it.done && !it.live }) return@LaunchedEffect
         val sinceReq = now - lastReqAt
@@ -633,6 +634,7 @@ fun CameraScreen(state: AppState) {
                     onClose = { closeCoach(); closedFor = scanStart },
                     onTick = { i -> manualDone[i] = !(manualDone[i] ?: false) },
                     onNewSteps = { closeCoach(); askedFor = -1L },
+                    newScene = newScene,
                     modifier = cardSpot,
                 )
             }
