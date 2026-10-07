@@ -23,11 +23,6 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.ui.geometry.Offset
 import androidx.camera.core.FocusMeteringAction
-import androidx.camera.core.UseCaseGroup
-import androidx.camera.core.CameraInfo
-import androidx.camera.camera2.interop.Camera2CameraInfo
-import androidx.camera.camera2.interop.ExperimentalCamera2Interop
-import android.hardware.camera2.CameraCharacteristics
 import java.util.concurrent.TimeUnit
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -173,44 +168,23 @@ fun CameraScreen(state: AppState) {
     val cover = remember { Animatable(1f) }
     var now by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
 
-    // ---- Lenses: the main camera, plus the phone's wide lens for 0.5× when it has one (group feedback 2026-10-07:
-    // "no 0.5×, 1×, 2×"). And what's saved = what's on screen: all three uses share the preview's own viewport, so the
-    // photo is cropped exactly like the preview ("photos in the gallery show different framing"). ----
-    var provider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
-    var wideSelector by remember { mutableStateOf<CameraSelector?>(null) }
-    var wideRatio by remember { mutableFloatStateOf(0.5f) }
-    var onWide by remember { mutableStateOf(false) }
-    suspend fun bindCamera(wide: Boolean) {
-        val p = provider ?: return
-        val preview = Preview.Builder().setResolutionSelector(fourByThree).build().also { it.surfaceProvider = previewView.surfaceProvider }
-        var vp = previewView.viewPort
-        repeat(40) { if (vp == null) { delay(25); vp = previewView.viewPort } }
-        val group = UseCaseGroup.Builder().addUseCase(preview).addUseCase(imageCapture).addUseCase(imageAnalysis)
-            .apply { vp?.let { setViewPort(it) } }.build()
-        p.unbindAll()
-        val useWide = wide && wideSelector != null
-        camera = p.bindToLifecycle(lifecycleOwner, if (useWide) wideSelector!! else CameraSelector.DEFAULT_BACK_CAMERA, group)
-        onWide = useWide
-        zoom = 1f
-    }
     LaunchedEffect(Unit) {
         try {
-            val p = ProcessCameraProvider.awaitInstance(context)
-            provider = p
-            findWideLens(p)?.let { (sel, ratio) -> wideSelector = sel; wideRatio = ratio }
-            bindCamera(false)
+            val provider = ProcessCameraProvider.awaitInstance(context)
+            val preview = Preview.Builder().setResolutionSelector(fourByThree).build().also { it.surfaceProvider = previewView.surfaceProvider }
+            provider.unbindAll()
+            camera = provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture, imageAnalysis)
             unavailable = false
             cover.animateTo(0f, tween(350))
         } catch (e: Exception) {
             unavailable = true
         }
     }
-    val shownZoom = if (onWide) wideRatio * zoom else zoom
-    val zoomStops = listOfNotNull(
-        if (wideSelector != null) wideRatio else (camera?.cameraInfo?.zoomState?.value?.minZoomRatio ?: 1f).takeIf { it <= 0.7f },
-        1f,
-        if ((camera?.cameraInfo?.zoomState?.value?.maxZoomRatio ?: 1f) >= 2f) 2f else null,
-    )
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        scope.launch { lastPhoto = withContext(Dispatchers.IO) { PhotoStore.list(context).firstOrNull() } }
+    }
+    LaunchedEffect(toast) { if (toast != null) { delay(2600); toast = null } }
+    // Open the line to the photographer while the camera starts, so the first ask doesn't wait on connecting.
     LaunchedEffect(Unit) { withContext(Dispatchers.IO) { Photographer.warmUp() } }
     LaunchedEffect(Unit) { while (true) { delay(200); now = SystemClock.elapsedRealtime() } }
 
@@ -326,15 +300,6 @@ fun CameraScreen(state: AppState) {
     val manualDone = remember { mutableStateMapOf<Int, Boolean>() }
     // What the view looked like when the plan arrived, to notice when they've turned to something else.
     var planGray by remember { mutableStateOf<Gray?>(null) }
-    // When the phone has been held still (frame-to-frame change small) — following a step means moving.
-    var lastGray by remember { mutableStateOf<Gray?>(null) }
-    var steadySince by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(frame) {
-        val g = frame?.gray ?: return@LaunchedEffect
-        val t = SystemClock.elapsedRealtime()
-        if (differs(g, lastGray) < 10f) { if (steadySince == 0L) steadySince = t } else steadySince = 0L
-        lastGray = g
-    }
 
     fun phoneContext(): String {
         val held = when {
@@ -343,8 +308,7 @@ fun CameraScreen(state: AppState) {
             tilt.offFlatDeg < 60f -> "tilted down, about ${tilt.offFlatDeg.toInt()}° from pointing straight down"
             else -> "upright, at about eye level"
         }
-        val stops = zoomStops.joinToString(", ") { if (it < 1f) String.format(java.util.Locale.US, "%.1f×", it) else "${it.toInt()}×" }
-        return "How the phone is held: $held. Zoom now: ${String.format(java.util.Locale.US, "%.1f", shownZoom)}×. Zoom buttons on this phone: $stops. " +
+        return "How the phone is held: $held. Zoom: ${String.format(java.util.Locale.US, "%.1f", zoom)}×. " +
             "The phone's own detector thinks it sees: ${if (things.isEmpty()) "nothing it recognises" else describe(things)} (it can be wrong)."
     }
 
@@ -381,7 +345,7 @@ fun CameraScreen(state: AppState) {
                             "tracker=${if (trackedBox != null) "found at $trackedBox" else "lost"} (match ${"%.2f".format(tracker.lastScore)}), phone saw ${seenNow.map { "${it.category}${it.box}" }}",
                     )
                     streak.clear(); liveOk.clear(); checkError = null
-                    val trusted = r.value.moves.map { it.check != CheckBy.Angle || liveCheck(it, tiltNow, subject, shownZoom) != true }
+                    val trusted = r.value.moves.map { it.check != CheckBy.Angle || liveCheck(it, tiltNow, subject) != true }
                     planScene = coarseScene(frame, tilt); planAt = SystemClock.elapsedRealtime(); lostSince = 0L
                     planGray = frame?.gray; manualDone.clear()
                     coach = Coach(r.value, subject?.id, liveTrusted = trusted)
@@ -438,7 +402,7 @@ fun CameraScreen(state: AppState) {
         coachSubject?.let { subjectBox = it.box }
         // A step turns done after 2 good frames in a row and back after 3 bad ones, so it doesn't flicker.
         c.advice.moves.forEachIndexed { i, m ->
-            val ok = liveCheck(m, tilt, coachSubject, shownZoom) ?: return@forEachIndexed
+            val ok = liveCheck(m, tilt, coachSubject) ?: return@forEachIndexed
             val prev = streak[i] ?: 0
             val next = if (ok) (if (prev > 0) prev + 1 else 1) else (if (prev < 0) prev - 1 else -1)
             streak[i] = next
@@ -447,7 +411,7 @@ fun CameraScreen(state: AppState) {
     }
     val steps = coach?.let { c ->
         c.advice.moves.mapIndexed { i, m ->
-            val measurable = when (m.check) { CheckBy.Angle -> tilt != Tilt.Unknown; CheckBy.Frame -> coachSubject != null; CheckBy.Zoom -> true; CheckBy.Other -> false }
+            val measurable = when (m.check) { CheckBy.Angle -> tilt != Tilt.Unknown; CheckBy.Frame -> coachSubject != null; CheckBy.Other -> false }
             val live = measurable && c.liveTrusted.getOrElse(i) { true }
             val auto = if (live) liveOk[i] == true else c.checked.getOrElse(i) { false }
             StepView(m, done = auto || manualDone[i] == true, live = live, note = c.notes.getOrElse(i) { "" })
@@ -493,13 +457,8 @@ fun CameraScreen(state: AppState) {
         // Turned to something else: the subject has been gone 2.5 s and the view looks clearly different from when the
         // plan came (or brighter/darker, or at another angle). Old steps for the old subject are dropped and new ones
         // asked for (classmate N: "if you change focus to another subject it still gives suggestions for the old one").
-        // Group feedback 2026-10-07: while following a step (tilting, shifting) the steps were thrown away and replaced,
-        // "1 of 3 done" dropping to "0 of 2". Now it only starts over when they've clearly settled on something else:
-        // subject gone 5 s, the phone held still for 1.5 s, the view very different, and the plan at least 8 s old.
-        // Otherwise the ↻ on the card does it.
-        val looksDifferent = coarseScene(frame, tilt) != planScene || differs(frame?.gray, planGray) > 40f
-        val heldStill = steadySince != 0L && now - steadySince > 1_500
-        if (lostSince != 0L && now - lostSince > 5_000 && now - planAt > 8_000 && heldStill && looksDifferent) {
+        val looksDifferent = coarseScene(frame, tilt) != planScene || differs(frame?.gray, planGray) > 28f
+        if (lostSince != 0L && now - lostSince > 2_500 && now - planAt > 4_000 && looksDifferent) {
             closeCoach(); askedFor = -1L
             return@LaunchedEffect
         }
@@ -524,28 +483,12 @@ fun CameraScreen(state: AppState) {
     // ---- Camera basics like any camera app (classmate feedback 2026-10-06: "it doesn't zoom in, zoom out or focus
     // like a simple camera"). Pinch to zoom, tap to focus, 1×/2× buttons. The gestures sit on a layer ABOVE the
     // preview: the preview view used to take the touches itself, so the old pinch never fired. ----
-    fun setZoomNow(z: Float) {
-        val cam = camera ?: return
-        val zs = cam.cameraInfo.zoomState.value
-        zoom = z.coerceIn(zs?.minZoomRatio ?: 1f, zs?.maxZoomRatio ?: 1f)
-        cam.cameraControl.setZoomRatio(zoom)
-    }
     fun setZoom(z: Float) {
         val cam = camera ?: return
         val zs = cam.cameraInfo.zoomState.value
         zoom = z.coerceIn(zs?.minZoomRatio ?: 1f, zs?.maxZoomRatio ?: 1f)
         cam.cameraControl.setZoomRatio(zoom)
         zoomShownAt = SystemClock.elapsedRealtime()
-    }
-    fun pickZoom(z: Float) {
-        scope.launch {
-            when {
-                z < 0.95f && wideSelector != null -> if (!onWide) bindCamera(true)
-                onWide -> { bindCamera(false); setZoomNow(z) }
-                else -> setZoomNow(z)
-            }
-            zoomShownAt = SystemClock.elapsedRealtime()
-        }
     }
     // Flash for the photo: Auto → On → Off, like the phone's own camera (user request, 2026-10-06).
     var flashSetting by remember { mutableStateOf(FlashSetting.Auto) }
@@ -603,14 +546,14 @@ fun CameraScreen(state: AppState) {
                 modifier = top,
             )
             GuideChip(pick, guideVisible && !explaining && !photographerOn, ::lookAgain, Modifier.align(Alignment.BottomCenter).padding(bottom = CPSpace.S2))
-            ZoomChip(shownZoom, now - zoomShownAt < 900, Modifier.align(Alignment.Center))
+            ZoomChip(zoom, now - zoomShownAt < 900, Modifier.align(Alignment.Center))
             FocusRing(focusAt, now - focusShownAt < 1200)
             if (camera?.cameraInfo?.hasFlashUnit() == true) {
                 FlashButton(flashSetting, onClick = { flashSetting = flashSetting.next() }, modifier = Modifier.align(Alignment.BottomStart).padding(start = CPSpace.S2, bottom = CPSpace.S2))
             }
             ZoomButtons(
-                current = shownZoom, stops = zoomStops, onPick = ::pickZoom,
-                modifier = Modifier.align(Alignment.BottomEnd).padding(end = CPSpace.S2, bottom = CPSpace.S2),
+                zoom = zoom, maxZoom = camera?.cameraInfo?.zoomState?.value?.maxZoomRatio ?: 1f,
+                onZoom = ::setZoom, modifier = Modifier.align(Alignment.BottomEnd).padding(end = CPSpace.S2, bottom = CPSpace.S2),
             )
             Box(Modifier.fillMaxSize().alpha(flash.value).background(CP.OnDark))
             Box(Modifier.fillMaxSize().alpha(cover.value).background(CP.CameraBar))
@@ -632,7 +575,6 @@ fun CameraScreen(state: AppState) {
                     steps = steps, ready = allDone, checking = busy, error = checkError,
                     onClose = { closeCoach(); closedFor = scanStart },
                     onTick = { i -> manualDone[i] = !(manualDone[i] ?: false) },
-                    onNewSteps = { closeCoach(); askedFor = -1L },
                     modifier = cardSpot,
                 )
             }
@@ -681,28 +623,4 @@ private fun differs(a: Gray?, b: Gray?): Float {
     var sum = 0L
     for (i in a.px.indices step 2) sum += kotlin.math.abs((a.px[i].toInt() and 0xFF) - (b.px[i].toInt() and 0xFF))
     return sum.toFloat() / (a.px.size / 2)
-}
-
-/**
- * The phone's wide (0.5×-style) back lens, if it shows one to apps, and how much wider it sees than the main camera.
- * Compared by field of view (sensor width ÷ focal length), so a low-res macro lens isn't mistaken for it.
- */
-@androidx.annotation.OptIn(ExperimentalCamera2Interop::class)
-private fun findWideLens(p: ProcessCameraProvider): Pair<CameraSelector, Float>? = try {
-    fun fov(info: CameraInfo): Float? {
-        val c = Camera2CameraInfo.from(info)
-        val f = c.getCameraCharacteristic(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.minOrNull() ?: return null
-        val w = c.getCameraCharacteristic(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)?.width ?: return null
-        return w / f
-    }
-    val backs = p.availableCameraInfos.filter { it.lensFacing == CameraSelector.LENS_FACING_BACK }
-    val main = backs.firstOrNull()
-    val mainFov = main?.let { fov(it) }
-    android.util.Log.i("ComposePro", "Back cameras: ${backs.map { fov(it) }} (main first)")
-    if (main == null || mainFov == null) null
-    else backs.drop(1).mapNotNull { i -> fov(i)?.let { i to it } }.filter { it.second > mainFov * 1.3f }.maxByOrNull { it.second }
-        ?.let { (info, f) -> info.cameraSelector to (Math.round(mainFov / f * 10f) / 10f) }
-} catch (e: Exception) {
-    android.util.Log.w("ComposePro", "Couldn't look for a wide lens", e)
-    null
 }

@@ -56,7 +56,7 @@ data class StepView(val move: Move, val done: Boolean, val live: Boolean, val no
 @Composable
 fun CoachCard(
     frame: String?, frameWhy: String, steps: List<StepView>, ready: Boolean, checking: Boolean, error: String?,
-    onClose: () -> Unit, onTick: (Int) -> Unit, onNewSteps: () -> Unit, modifier: Modifier = Modifier,
+    onClose: () -> Unit, onTick: (Int) -> Unit, modifier: Modifier = Modifier,
 ) {
     // All steps at once under the camera view (user request, 2026-10-06). The one to do now is bold and carries its
     // hint; the camera view only shows the ring/box for that one.
@@ -72,12 +72,6 @@ fun CoachCard(
                 style = CPType.CaptionMedium, color = CP.OnDark.copy(alpha = 0.75f), modifier = Modifier.weight(1f),
             )
             if (checking) CircularProgressIndicator(Modifier.size(12.dp), color = CP.OnDark.copy(alpha = 0.7f), strokeWidth = 1.5.dp)
-            // Fresh steps for whatever the camera sees now: the person decides when it's a new photo.
-            Box(
-                Modifier.size(36.dp).clip(CPShape.Pill).clickable(role = Role.Button, onClick = onNewSteps)
-                    .semantics { contentDescription = "New steps for what's in view now" },
-                contentAlignment = Alignment.Center,
-            ) { Text("↻", style = CPType.BodyStrong, color = CP.OnDark) }
             Box(
                 Modifier.size(36.dp).clip(CPShape.Pill).clickable(role = Role.Button, onClick = onClose)
                     .semantics { contentDescription = "Close the steps" },
@@ -106,7 +100,6 @@ fun CoachCard(
                         val hint = when {
                             s.move.check == CheckBy.Frame && s.move.size != null -> "Move until the outline fills the white box."
                             s.move.check == CheckBy.Frame -> "Move the phone until the dot is inside the circle."
-                            s.move.check == CheckBy.Zoom -> "Tap ${s.move.zoom?.let { if (it < 1f) String.format(java.util.Locale.US, "%.1f", it) else it.toInt().toString() }}× at the bottom-right of the camera view."
                             s.note.isNotBlank() && !s.note.equals("Done", ignoreCase = true) -> s.note
                             else -> s.move.why
                         }
