@@ -1,5 +1,13 @@
 package com.composepro.app.ui
 
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -148,10 +156,40 @@ fun FindingCard(modifier: Modifier = Modifier) {
     }
 }
 
-/** When the first open step is about where the subject sits: a ring where it should go, a dot on it now, an arrow between. */
+/**
+ * Which way to move the phone, read from the step's words ("Move the phone slightly to the right" → right).
+ * Used when the subject isn't being followed, so there's still an arrow to go by.
+ */
+fun phoneDirection(action: String): Offset? {
+    val t = action.lowercase()
+    val x = when {
+        Regex("""\bleft\b""").containsMatchIn(t) -> -1f
+        Regex("""\bright\b(?!\s+(in|at|there|on|now|away))""").containsMatchIn(t) -> 1f
+        else -> 0f
+    }
+    val y = when {
+        Regex("""\b(up|higher|raise)\b""").containsMatchIn(t) -> -1f
+        Regex("""\b(down|lower)\b""").containsMatchIn(t) -> 1f
+        else -> 0f
+    }
+    if (x == 0f && y == 0f) return null
+    val len = kotlin.math.sqrt(x * x + y * y)
+    return Offset(x / len, y / len)
+}
+
+/**
+ * When the first open step is about where the subject sits: a ring where it should go, a dot on it now, and moving
+ * chevrons from the ring showing which way to MOVE THE PHONE (user test 2026-10-08: "this arrow guide is not working").
+ * The old arrow ran from the dot to the ring, the way the subject has to travel on screen, which is the opposite of
+ * the way the phone moves, so "move the phone right" came with an arrow pointing left. When the subject isn't being
+ * followed (no dot), the chevrons come from the step's own words ([phoneDir]).
+ */
 @Composable
-fun CoachLayer(target: P?, subject: P?, subjectBox: RectF?, targetSize: Float?, hit: Boolean, modifier: Modifier = Modifier) {
+fun CoachLayer(target: P?, subject: P?, subjectBox: RectF?, targetSize: Float?, hit: Boolean, phoneDir: Offset? = null, modifier: Modifier = Modifier) {
     val a by animateFloatAsState(if (target != null) 1f else 0f, tween(250), label = "coachAlpha")
+    val flow by rememberInfiniteTransition(label = "chevrons").animateFloat(
+        0f, 1f, infiniteRepeatable(tween(1100, easing = LinearEasing)), label = "flow",
+    )
     Canvas(modifier.alpha(a)) {
         val t = target ?: return@Canvas
         val w = size.width; val h = size.height
@@ -184,19 +222,40 @@ fun CoachLayer(target: P?, subject: P?, subjectBox: RectF?, targetSize: Float?, 
         }
         drawCircle(CP.Glass, ring, to)
         drawCircle(CP.OnDark, ring, to, style = Stroke(3f * density))
-        val p = subject ?: return@Canvas
-        val from = Offset(p.x * w, p.y * h)
-        val d = to - from
-        val len = d.getDistance()
-        drawCircle(CP.OnDark, 7f * density, from)
-        if (len < ring * 1.5f) return@Canvas
-        val u = d / len
-        val end = to - u * (ring + 4f * density)
-        drawLine(CP.OnDark, from + u * (9f * density), end, 3f * density, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f * density, 7f * density)))
-        val head = 12f * density
-        val side = Offset(-u.y, u.x)
-        val l = end - u * head + side * head * 0.6f
-        val r = end - u * head - side * head * 0.6f
-        drawPath(Path().apply { moveTo(end.x, end.y); lineTo(l.x, l.y); lineTo(r.x, r.y); close() }, CP.OnDark)
+
+        // Which way the phone should go: towards the subject (the subject then slides into the ring).
+        val dir: Offset? = subject?.let { p ->
+            val from = Offset(p.x * w, p.y * h)
+            val d = from - to
+            val len = d.getDistance()
+            drawCircle(CP.OnDark, 7f * density, from)
+            if (len < ring * 1.5f) null else {
+                // A faint dashed line joins the dot and the ring; the chevrons carry the direction.
+                drawLine(
+                    CP.OnDark.copy(alpha = 0.5f), to + d / len * (ring + 4f * density), from - d / len * (9f * density), 2f * density,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f * density, 8f * density)),
+                )
+                d / len
+            }
+        } ?: phoneDir
+        if (dir != null) chevrons(to, dir, ring, flow)
+    }
+}
+
+/** Three chevrons flowing out of the ring in [dir]: "move the phone this way". */
+private fun DrawScope.chevrons(at: Offset, dir: Offset, ring: Float, flow: Float) {
+    val side = Offset(-dir.y, dir.x)
+    val s = 11f * density
+    val gap = 20f * density
+    for (k in 0 until 3) {
+        val f = (k + flow) / 3f                       // 0..1 along the run
+        val c = at + dir * (ring + 14f * density + f * gap * 3f)
+        val alpha = (1f - f) * 0.95f + 0.05f
+        val tip = c + dir * (s * 0.6f)
+        val l = c - dir * (s * 0.6f) + side * s
+        val r = c - dir * (s * 0.6f) - side * s
+        val path = Path().apply { moveTo(l.x, l.y); lineTo(tip.x, tip.y); lineTo(r.x, r.y) }
+        drawPath(path, Color.Black.copy(alpha = 0.35f * alpha), style = Stroke(7f * density, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        drawPath(path, CP.OnDark.copy(alpha = alpha), style = Stroke(4f * density, cap = StrokeCap.Round, join = StrokeJoin.Round))
     }
 }

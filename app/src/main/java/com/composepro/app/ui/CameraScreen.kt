@@ -668,6 +668,7 @@ fun CameraScreen(state: AppState) {
             targetSize = ringMove?.size,
             // The ring goes green exactly when its step does, so the two never disagree.
             hit = steps.getOrNull(ringStep)?.done == true,
+            phoneDir = ringMove?.let { phoneDirection(it.action) },
             modifier = Modifier.fillMaxSize(),
         )
         ZoomChip(shownZoom, now - zoomShownAt < 900, Modifier.align(Alignment.Center))

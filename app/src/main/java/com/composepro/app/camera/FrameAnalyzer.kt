@@ -43,6 +43,7 @@ class FrameAnalyzer(private val context: Context, private val onResult: (FrameRe
     private var detector: ObjectDetector? = null
     private var lastRun = 0L
     private var lastView: RectF? = null
+    private var lastSeen: List<String> = emptyList()
 
     override fun analyze(proxy: ImageProxy) {
         val now = SystemClock.elapsedRealtime()
@@ -68,7 +69,8 @@ class FrameAnalyzer(private val context: Context, private val onResult: (FrameRe
                 lastView = view
                 Log.i(TAG, "Visible area: crop=$crop of ${proxy.width}x${proxy.height}, rotation ${proxy.imageInfo.rotationDegrees}, bitmap ${full.width}x${full.height} -> $view")
             }
-            Log.d(TAG, "things=${things.size} ${things.map { "${it.category}${it.box.toShortString()}" }}")
+            val seen = things.map { "${it.category}#${it.id}" }
+            if (seen != lastSeen) { lastSeen = seen; Log.d(TAG, "things=${things.size} ${things.map { "${it.category}#${it.id}${it.box.toShortString()}" }}") }
             val r = FrameResult(things, light.meanY, light.centerY, light.clipFrac, light.warmth, gray)
             mainThread.execute { onResult(r) }
         } catch (e: Exception) {
