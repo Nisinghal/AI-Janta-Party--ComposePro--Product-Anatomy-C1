@@ -65,6 +65,20 @@ fun SettingsScreen(state: AppState) {
                     Switch(state.tipsOn)
                 }
 
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 56.dp).clip(CPShape.Card).background(CP.Raised)
+                        .toggleable(value = state.autoShot, role = Role.Switch) { state.switchAutoShot(it) }
+                        .padding(start = 16.dp, end = CPSpace.S2, top = 10.dp, bottom = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column(Modifier.weight(1f).padding(end = CPSpace.S2)) {
+                        Text("Auto shot", style = CPType.BodyMedium, color = CP.Ink)
+                        Text("Just hold the phone. When the steps are done and you're still, it takes the photo.", style = CPType.Caption, color = CP.Muted)
+                    }
+                    Switch(state.autoShot)
+                }
+
                 Column(verticalArrangement = Arrangement.spacedBy(CPSpace.S2)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                         Text("Things you said weren't right", style = CPType.Heading, color = CP.Ink, modifier = Modifier.weight(1f))

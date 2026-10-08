@@ -10,6 +10,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
@@ -351,6 +352,37 @@ enum class FlashSetting(val label: String, val captureMode: Int) {
     Off("Off", androidx.camera.core.ImageCapture.FLASH_MODE_OFF);
 
     fun next() = entries[(ordinal + 1) % entries.size]
+}
+
+/** "Auto shot" on/off in a glass pill: an "A" in a ring, green when on. */
+@Composable
+fun AutoShotButton(on: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier.clip(CPShape.Pill).background(if (on) CP.Right else CP.Glass)
+            .clickable(role = Role.Switch, onClickLabel = if (on) "Turn auto shot off" else "Turn auto shot on", onClick = onClick)
+            .semantics { contentDescription = "Auto shot ${if (on) "on" else "off"}" }
+            .padding(start = 8.dp, end = 14.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(Modifier.size(22.dp).border(1.6.dp, CP.OnDark, CPShape.Pill), contentAlignment = Alignment.Center) {
+            Text("A", style = CPType.CaptionMedium, color = CP.OnDark)
+        }
+        Text(if (on) "Auto shot" else "Auto shot off", style = CPType.CaptionMedium, color = CP.OnDark)
+    }
+}
+
+/** The countdown round the shutter while Auto shot waits for the phone to stay still. */
+@Composable
+fun AutoShotRing(progress: Float, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val sw = 4.dp.toPx()
+        drawArc(
+            CP.Right, -90f, 360f * progress, false,
+            topLeft = Offset(sw / 2, sw / 2), size = androidx.compose.ui.geometry.Size(size.width - sw, size.height - sw),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(sw, cap = androidx.compose.ui.graphics.StrokeCap.Round),
+        )
+    }
 }
 
 /** Lightning bolt + "Auto/On/Off" in a glass pill; the bolt is crossed out when off and yellow when on. */

@@ -27,6 +27,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("tipsOn", true)
         set(v) = sp.edit().putBoolean("tipsOn", v).apply()
 
+    /** Auto shot: the camera adjusts and takes the photo once the steps are done and the phone is held still. */
+    var autoShot: Boolean
+        get() = sp.getBoolean("autoShot", false)
+        set(v) = sp.edit().putBoolean("autoShot", v).apply()
+
     /** Has this person ever kept a photo? Decides the empty Gallery's words (day one vs. emptied). */
     var hadPhotos: Boolean
         get() = sp.getBoolean("hadPhotos", false)
@@ -50,12 +55,15 @@ class AppState(private val prefs: Prefs) {
     var pending by mutableStateOf<PendingPhoto?>(null)
     var hadPhotos by mutableStateOf(prefs.hadPhotos)
         private set
+    var autoShot by mutableStateOf(prefs.autoShot)
+        private set
     /** Where to go after the Quick tour: the first run goes to the Camera, a replay goes back to Settings. */
     var tourReturnsTo by mutableStateOf(Screen.Camera)
 
     fun markTourSeen() { tourSeen = true; prefs.tourSeen = true }
     fun markHadPhotos() { if (!hadPhotos) { hadPhotos = true; prefs.hadPhotos = true } }
     fun setTips(on: Boolean) { tipsOn = on; prefs.tipsOn = on }
+    fun switchAutoShot(on: Boolean) { autoShot = on; prefs.autoShot = on }
     fun addNotRight(name: String) { notRight.add(0, NotRight(name, System.currentTimeMillis())); prefs.notRight = notRight.toList() }
     fun clearNotRight() { notRight.clear(); prefs.notRight = emptyList() }
 }

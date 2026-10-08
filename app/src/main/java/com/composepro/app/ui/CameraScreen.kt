@@ -616,6 +616,38 @@ fun CameraScreen(state: AppState) {
         .pointerInput(camera) { detectTransformGestures { _, _, zoomChange, _ -> if (zoomChange != 1f) setZoom(zoom * zoomChange) } }
         .pointerInput(camera) { detectTapGestures(onTap = { focus(it) }) }
 
+    // ---- Auto shot (user request 2026-10-08: "the user just holds, the camera adjusts and captures; as an option").
+    // The camera does what it can itself (a zoom step is applied, focus and exposure go to the subject); once the steps
+    // are done and the phone is held still, a ring fills round the shutter and the photo is taken. Moving cancels it. ----
+    val openedAt = remember { SystemClock.elapsedRealtime() }
+    var zoomedFor by remember { mutableStateOf<Any?>(null) }
+    LaunchedEffect(coach, state.autoShot) {
+        val c = coach ?: return@LaunchedEffect
+        if (!state.autoShot || zoomedFor === c.advice) return@LaunchedEffect
+        zoomedFor = c.advice
+        val z = c.advice.moves.firstOrNull { it.check == CheckBy.Zoom }?.zoom ?: return@LaunchedEffect
+        if (kotlin.math.abs(shownZoom - z) > 0.05f) pickZoom(z)
+    }
+    val shotReady = when {
+        unavailable || taking || dark -> false
+        coach != null -> allDone
+        photographerOn -> false            // the steps are still on their way
+        !state.tipsOn -> true
+        else -> shown.edge == EdgeState.Right
+    }
+    val heldForShot = steadySince != 0L && now - steadySince >= 500
+    val armed = state.autoShot && shotReady && heldForShot && now - openedAt > 2_000
+    var countFrom by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(armed) {
+        if (!armed) { countFrom = 0L; return@LaunchedEffect }
+        countFrom = SystemClock.elapsedRealtime()
+        (coachSubject ?: shown.main)?.let { s -> focus(Offset(s.cx * previewView.width, s.cy * previewView.height)) }
+        delay(AUTO_SHOT_MS)
+        countFrom = 0L
+        takePhoto()
+    }
+    val autoProgress = if (countFrom == 0L) 0f else ((now - countFrom).toFloat() / AUTO_SHOT_MS).coerceIn(0f, 1f)
+
     // Full-screen camera (user decision 2026-10-07: "remove the space, just keep the buttons, tips and all"). The picture
     // fills the screen and everything floats on top. The photo is cut to this same view, so what's on screen, white
     // space included, is what's saved.
@@ -676,13 +708,19 @@ fun CameraScreen(state: AppState) {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             toast?.let { GlassToast(it, Modifier.padding(bottom = CPSpace.S2)) }
+            if (autoProgress > 0f && toast == null) GlassToast("Hold still…", Modifier.padding(bottom = CPSpace.S2))
             GuideChip(pick, guideVisible && !explaining && !photographerOn, ::lookAgain, Modifier.padding(bottom = CPSpace.S2))
             Row(
                 Modifier.fillMaxWidth().padding(start = CPSpace.S2, end = CPSpace.S2, bottom = CPSpace.S2),
                 horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (camera?.cameraInfo?.hasFlashUnit() == true) FlashButton(flashSetting, onClick = { flashSetting = flashSetting.next() })
-                else Spacer(Modifier.size(1.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(CPSpace.S1), verticalAlignment = Alignment.CenterVertically) {
+                    if (camera?.cameraInfo?.hasFlashUnit() == true) FlashButton(flashSetting, onClick = { flashSetting = flashSetting.next() })
+                    AutoShotButton(state.autoShot, onClick = {
+                        state.switchAutoShot(!state.autoShot)
+                        toast = if (state.autoShot) "Auto shot on. Do the steps and hold still; it takes the photo." else "Auto shot off."
+                    })
+                }
                 ZoomButtons(current = shownZoom, stops = zoomStops, onPick = ::pickZoom)
             }
             val cardSpot = Modifier.padding(start = CPSpace.S2, end = CPSpace.S2, bottom = CPSpace.S3)
@@ -709,7 +747,10 @@ fun CameraScreen(state: AppState) {
                         .clickable(enabled = !unavailable, role = Role.Button, onClick = ::takePhoto)
                         .semantics { contentDescription = "Take photo" },
                     contentAlignment = Alignment.Center,
-                ) { Box(Modifier.size(58.dp).clip(CPShape.Pill).background(CP.OnDark)) }
+                ) {
+                    Box(Modifier.size(58.dp).clip(CPShape.Pill).background(CP.OnDark))
+                    if (autoProgress > 0f) AutoShotRing(autoProgress, Modifier.size(72.dp))
+                }
                 Box(
                     Modifier.size(CPSpace.Tap).clip(CPShape.Pill).background(CP.Glass)
                         .clickable(role = Role.Button) { state.screen = Screen.Settings },
@@ -719,6 +760,9 @@ fun CameraScreen(state: AppState) {
         }
     }
 }
+
+/** How long the phone must stay still, steps done, before Auto shot takes the photo. */
+private const val AUTO_SHOT_MS = 1500L
 
 @Composable
 fun GlassToast(text: String, modifier: Modifier = Modifier) {
