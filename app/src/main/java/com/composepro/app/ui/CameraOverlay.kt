@@ -26,6 +26,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.semantics
@@ -410,5 +412,56 @@ fun FlashButton(setting: FlashSetting, onClick: () -> Unit, modifier: Modifier =
             }
         }
         Text(setting.label, style = CPType.CaptionMedium, color = CP.OnDark)
+    }
+}
+
+/**
+ * The level from the onboarding's tilt card, live (user test 2026-10-09: "if I tilt the camera it doesn't guide like
+ * in the demo"). When the phone is held up and tipped sideways, a line across the middle follows the real horizon,
+ * between two fixed marks, with the degrees under it. It turns green when straight (within 1.5°) and then fades away.
+ * Not when the phone points down at a table (sideways tilt means nothing there).
+ */
+@Composable
+fun LevelGuide(tilt: com.composepro.app.camera.Tilt, now: Long, modifier: Modifier = Modifier) {
+    val upright = tilt != com.composepro.app.camera.Tilt.Unknown && tilt.offFlatDeg > 45f && kotlin.math.abs(tilt.rollDeg) <= 30f
+    val level = kotlin.math.abs(tilt.rollDeg) <= 1.5f
+    var levelSince by androidx.compose.runtime.remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    if (level && levelSince == 0L) levelSince = now
+    if (!level) levelSince = 0L
+    val show = upright && (!level || now - levelSince < 1200)
+    val a by animateFloatAsState(if (show) 1f else 0f, tween(250), label = "level")
+    if (a == 0f) return
+    val ok = if (level) 1f else 0f
+    val green by animateFloatAsState(ok, tween(200), label = "levelGreen")
+    Box(modifier.alpha(a)) {
+        Canvas(Modifier.fillMaxSize()) {
+            val mid = Offset(size.width / 2, size.height * 0.45f)
+            val sw = 3.dp.toPx()
+            val shade = Color.Black.copy(alpha = 0.3f)
+            val col = androidx.compose.ui.graphics.lerp(Color.White, CP.Right, green)
+            // Fixed marks at both sides: where the line should sit.
+            for ((x0, x1) in listOf(0.06f to 0.15f, 0.85f to 0.94f)) {
+                drawLine(shade, Offset(size.width * x0, mid.y), Offset(size.width * x1, mid.y), sw + 3.dp.toPx(), androidx.compose.ui.graphics.StrokeCap.Round)
+                drawLine(Color.White.copy(alpha = 0.8f), Offset(size.width * x0, mid.y), Offset(size.width * x1, mid.y), sw, androidx.compose.ui.graphics.StrokeCap.Round)
+            }
+            // The horizon line, turned with the phone so it stays level with the world.
+            rotate(tilt.rollDeg, mid) {
+                drawLine(shade, Offset(size.width * 0.2f, mid.y), Offset(size.width * 0.8f, mid.y), sw + 3.dp.toPx(), androidx.compose.ui.graphics.StrokeCap.Round)
+                drawLine(col, Offset(size.width * 0.2f, mid.y), Offset(size.width * 0.8f, mid.y), sw, androidx.compose.ui.graphics.StrokeCap.Round)
+            }
+            drawCircle(col, 5.dp.toPx(), mid)
+        }
+        // The degrees, just under the line (which sits at 45% of the height)
+        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+            Box(
+                Modifier.align(Alignment.TopCenter).padding(top = maxHeight * 0.45f + 18.dp)
+                    .clip(CPShape.Pill).background(Color.Black.copy(alpha = 0.55f)).padding(horizontal = 12.dp, vertical = 5.dp),
+            ) {
+                Text(
+                    if (level) "Straight ✓" else "${kotlin.math.abs(tilt.rollDeg).toInt()}° · turn until the line is level",
+                    style = CPType.CaptionMedium, color = if (level) CP.Right else CP.OnDark,
+                )
+            }
+        }
     }
 }

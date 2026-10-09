@@ -678,6 +678,7 @@ fun CameraScreen(state: AppState) {
             hit = steps.getOrNull(ringStep)?.done == true,
             modifier = Modifier.fillMaxSize(),
         )
+        if (state.tipsOn && !dark) LevelGuide(tilt, now, Modifier.fillMaxSize())
         ZoomChip(shownZoom, now - zoomShownAt < 900, Modifier.align(Alignment.Center))
         FocusRing(focusAt, now - focusShownAt < 1200)
         Box(Modifier.fillMaxSize().alpha(flash.value).background(CP.OnDark))
