@@ -188,9 +188,12 @@ object Photographer {
 
         Moves must be plain physical actions, and must use ONLY these words (the person's group found "tilt the phone
         up/down" confusing: nobody knew which way that was). Directions are always as the person sees them on the screen.
-        - Sideways: "Step left" / "Step right".
-        - Distance: "Step closer" / "Step back".
-        - Height: "Hold the phone higher" / "Hold the phone lower" / "Crouch down a little".
+        Every move says what to do WITH THE PHONE and, where it helps, WHERE TO, by something they can see in the
+        picture (user test 2026-10-09: "crouch down a little" — nobody knew how or what it meant). Never "crouch",
+        "kneel", "squat", "get down" or "lean".
+        - Sideways: "Move the phone a little left" / "Move the phone a little right" (for a scene: "Step left" / "Step right").
+        - Distance: "Move the phone closer to the cup" / "Move the phone back from the cup" (for a scene: "Step closer" / "Step back").
+        - Height: "Hold the phone lower, level with the statue's chest" / "Hold the phone higher, above the plate".
         - Angle: "Point the camera more down at it" / "Point the camera more forward". Never "tilt", "angle the phone"
           or "up/down" on its own.
         - Zoom: "Tap 2×" (or another zoom button this phone has).
@@ -250,7 +253,8 @@ object Photographer {
         friendly photographer standing next to them: done is true if the move was done or nearly done, or if the frame
         now looks the way the move was aiming for. Moves you can't judge from one frame (phone height, distance) count
         as done when the result looks right. Moves marked (already done) stay done. In notes, use the same plain words as
-        the moves ("Step right a little more", "Point the camera more down"); never "tilt". For each move write a note of at most 10 words:
+        the moves ("Move the phone a little more right", "Hold the phone a bit lower, level with its chest"); never "tilt"
+        or "crouch". For each move write a note of at most 10 words:
         "Done" if done, otherwise exactly what is still off ("Almost, lower the phone a little more").
         Set ready to true only if the photo is now good to take. In next, say the single most useful thing to do now,
         at most 12 words (or "Take the photo." if ready).
@@ -485,7 +489,7 @@ object Photographer {
                     frameAction(box.centerX() - tx, box.centerY() - ty, kind, o.optString("subject")) ?: m.optString("action")
                 else m.optString("action")
                 Move(
-                    action = action,
+                    action = plainWords(action),
                     why = m.optString("why"),
                     check = finalCheck,
                     // Never ask for more than 60% of the height: closer than that pushed people into distortion,
@@ -502,6 +506,22 @@ object Photographer {
         null
     }
 
+    /**
+     * Swaps words people found confusing for plain phone actions, whatever the model wrote (group test 2026-10-09:
+     * "tilt the phone" — which way?; "crouch down a little" — how, and what for?).
+     */
+    fun plainWords(text: String): String {
+        var t = text
+        val swaps = listOf(
+            """(?i)\b(?:crouch|kneel|squat)(?: down)?(?: a little| a bit| slightly| lower)?(?: more)?\b|\bget down(?: a little| a bit| lower)?\b""" to "hold the phone lower",
+            """(?i)\btilt (the )?(phone|camera) (down|downward|downwards)\b""" to "point the camera more down",
+            """(?i)\btilt (the )?(phone|camera) (up|upward|upwards|back)\b""" to "point the camera more forward",
+            """(?i)\blean (in|forward)\b""" to "move the phone closer",
+        )
+        for ((re, with) in swaps) t = Regex(re).replace(t, with)
+        return t.replaceFirstChar { it.uppercase() }
+    }
+
     /** "Move the phone a little left so the mug sits in the circle", from how far the subject is from the circle. */
     private fun frameAction(dx: Float, dy: Float, kind: ShotKind, subject: String): String? {
         if (kotlin.math.abs(dx) < 0.05f && kotlin.math.abs(dy) < 0.05f) return null
@@ -514,9 +534,9 @@ object Photographer {
         val arr = o.optJSONArray("moves") ?: JSONArray()
         Review(
             done = List(count) { i -> arr.optJSONObject(i)?.optBoolean("done") ?: false },
-            notes = List(count) { i -> arr.optJSONObject(i)?.optString("note").orEmpty() },
+            notes = List(count) { i -> plainWords(arr.optJSONObject(i)?.optString("note").orEmpty()) },
             ready = o.optBoolean("ready"),
-            next = o.optString("next"),
+            next = plainWords(o.optString("next")),
         )
     } catch (e: Exception) {
         null
