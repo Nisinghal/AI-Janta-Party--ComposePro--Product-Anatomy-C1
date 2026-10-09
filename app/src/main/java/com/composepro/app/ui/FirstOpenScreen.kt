@@ -18,7 +18,10 @@ import com.composepro.app.ui.theme.CPType
 
 /** The onboarding: the auto-playing showcase (IntroShowcase), then "Allow camera". Shown only until the camera is allowed. */
 @Composable
-fun FirstOpenScreen(refused: Boolean, asking: Boolean, onAllow: () -> Unit, onOpenSettings: () -> Unit) {
+fun FirstOpenScreen(
+    refused: Boolean, asking: Boolean, onAllow: () -> Unit, onOpenSettings: () -> Unit,
+    autoShot: Boolean = false, onAutoShot: (Boolean) -> Unit = {},
+) {
     Column(
         Modifier.fillMaxSize().background(CP.Accent).safeDrawingPadding().padding(top = CPSpace.S3, bottom = CPSpace.S3),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -29,6 +32,7 @@ fun FirstOpenScreen(refused: Boolean, asking: Boolean, onAllow: () -> Unit, onOp
             Modifier.fillMaxWidth().padding(horizontal = CPSpace.S3).padding(top = CPSpace.S3),
             verticalArrangement = Arrangement.spacedBy(CPSpace.S2),
         ) {
+            AutoShotRow(autoShot, onAutoShot)
             if (refused) {
                 ErrorLine("Compose Pro needs the camera to work. Turn it on in your phone's settings.")
                 PillButton("Open settings", onOpenSettings, Modifier.fillMaxWidth(), primary = false)

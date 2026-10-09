@@ -91,7 +91,17 @@ object Photographer {
      * while another answers in a few; each model has its own free limit, so racing stays free.
      * The "-latest" alias moves forward with each Google release; the dated ones are older, often quieter models.
      */
-    @Volatile private var MODELS = listOf("gemini-flash-lite-latest", "gemini-flash-latest")
+    @Volatile private var MODELS = listOf("gemini-3.1-flash-lite-preview", "gemini-3.5-flash-lite", "gemini-flash-lite-latest")
+
+    /**
+     * Fixed order, best first. The answer comes from the first of these that answers (the next only if it fails or
+     * is still busy after [PREFER_MS]). It used to be whichever answered first, so reloading the same object gave a
+     * different model, and different steps, each time; and the tester key could end up on other models than the
+     * owner's (user test 2026-10-09: "every time I reload for the same object it gives different instructions",
+     * "the tester APK isn't working the same as the original").
+     */
+    private val PREFERRED = listOf("gemini-3.1-flash-lite-preview", "gemini-3.5-flash-lite", "gemini-flash-lite-latest")
+    private const val PREFER_MS = 8_000L
     @Volatile private var warmed = false
 
     /**
@@ -119,8 +129,9 @@ object Photographer {
             // Lite first (quickest), then the newest version number.
             fun version(n: String) = Regex("""\d+(\.\d+)?""").find(n)?.value?.toFloatOrNull() ?: 0f
             val picked = usable.filter { "latest" !in it }.sortedWith(compareBy<String>({ "lite" !in it }, { -version(it) })).take(2)
-            MODELS = (listOf("gemini-flash-lite-latest") + picked).distinct().take(3)
-            Log.i("ComposePro", "Gemini models to race: $MODELS (of ${usable.size} usable)")
+            // The preferred ones this key has, in their fixed order; others only to fill a gap.
+            MODELS = (PREFERRED.filter { it in usable || it.endsWith("-latest") } + picked).distinct().take(3)
+            Log.i("ComposePro", "Gemini models, in order: $MODELS (of ${usable.size} usable)")
         } catch (e: Exception) {
             Log.w("ComposePro", "Gemini warm-up failed: ${e.message}")
         }
@@ -194,8 +205,16 @@ object Photographer {
         Give only moves they can do in the next 10 seconds. Never suggest editing apps, filters, buying gear, changing
         camera settings (other than the zoom buttons) or tapping the screen. Ignore slight blur from a moving phone.
         Only mention people if you can clearly see a person. Name the real things you see ("the blue bowl").
-        Give 2 or 3 moves, most important first; each action at most 12 words, each reason at most 15 words.
-        One idea per move, so each can be checked on its own.
+        Be consistent: the same scene must always get the same steps. Decide them with these rules, in this order, and
+        skip any that isn't clearly needed:
+        1. Angle: only if the phone's angle is clearly wrong for this subject (see the angle rules).
+        2. Size: if the subject fills less than about a quarter of the picture's height, zoom (or step closer); if it is
+           cut off at an edge, step back.
+        3. Position: one "frame" move, only if the subject is not already near the frame's spot.
+        4. Only then light or tidying, and only if something is clearly wrong.
+        Give 1 to 3 moves in that order; each action at most 12 words, each reason at most 15 words. Say each step the way
+        a photographer standing next to them would: short, calm and specific. One idea per move, so each can be checked
+        on its own. The phone looked at the scene for 3 seconds first; use its list of what it saw to pick the subject.
 
         Then choose ONE composition frame. Follow how the person is already framing: pick the frame that needs the
         smallest change, and the simplest one that works. Each frame has fixed spots, as (x, y) with 0 = left/top:
@@ -295,21 +314,36 @@ object Photographer {
         }
     }
 
-    /** Sends one frame + text to every model at once and returns the first good answer (its JSON text). */
+    /**
+     * Sends one frame + text to the models at once, but takes the answer of the FIRST model in [MODELS] order that
+     * answers: a later one is used only if the ones before it failed, or are still busy after [PREFER_MS].
+     */
     private fun generate(system: String, schema: JSONObject, frame: Bitmap, text: String): Reply<String> {
         if (!hasKey) return Reply.Failed("The photographer needs a Gemini API key. Add it to local.properties and rebuild the app.")
         val image = toJpegBase64(frame)
         val started = System.currentTimeMillis()
-        val done = ExecutorCompletionService<Reply<String>>(pool)
-        MODELS.forEach { model -> done.submit(Callable { askOne(model, system, schema, image, text, started) }) }
+        val models = MODELS
+        val done = ExecutorCompletionService<Pair<Int, Reply<String>>>(pool)
+        models.forEachIndexed { i, model -> done.submit(Callable { i to askOne(model, system, schema, image, text, started) }) }
+        val got = arrayOfNulls<Reply<String>>(models.size)
         var failure: Reply<String> = Reply.Failed("The photographer is busy right now. Try again in a moment.")
-        repeat(MODELS.size) {
-            val r = try { done.poll(60, TimeUnit.SECONDS)?.get() } catch (e: Exception) { null }
-                ?: return Reply.Failed("The photographer took too long. Try again.")
-            if (r is Reply.Ok) return r   // the slower ones finish in the background and are ignored
-            if (r is Reply.Failed && (it == 0 || r.isKeyProblem())) failure = r
+        var received = 0
+        while (received < models.size) {
+            val late = System.currentTimeMillis() - started >= PREFER_MS
+            for (i in models.indices) {
+                val r = got[i]
+                if (r is Reply.Ok) return r
+                if (r == null && !late) break          // a better-placed model hasn't answered yet: wait for it
+            }
+            if (System.currentTimeMillis() - started > 60_000) return Reply.Failed("The photographer took too long. Try again.")
+            val wait = if (late) 60_000L else (PREFER_MS - (System.currentTimeMillis() - started)).coerceAtLeast(1L)
+            val next = try { done.poll(wait, TimeUnit.MILLISECONDS)?.get() } catch (e: Exception) { null } ?: continue
+            got[next.first] = next.second
+            received++
+            val r = next.second
+            if (r is Reply.Failed && (next.first == 0 || r.isKeyProblem())) failure = r
         }
-        return failure
+        return got.firstOrNull { it is Reply.Ok } ?: failure
     }
 
     private fun Reply<String>.isKeyProblem() = this is Reply.Failed && ("API key" in message)
@@ -333,7 +367,7 @@ object Photographer {
                 "generationConfig",
                 // temperature 0: the same scene gets the same steps, instead of a slightly different answer each time
                 // (group feedback round 3: instructions still changing).
-                JSONObject().put("responseMimeType", "application/json").put("responseSchema", schema).put("temperature", 0).apply {
+                JSONObject().put("responseMimeType", "application/json").put("responseSchema", schema).put("temperature", 0).put("seed", 7).apply {
                     THINKING[thinkingFor[model] ?: 0]?.let { put("thinkingConfig", it) }
                 },
             )
@@ -436,18 +470,24 @@ object Photographer {
                 fun frac(key: String) = if (m.has(key)) m.optDouble(key).toFloat().takeIf { it in 0f..1f } else null
                 val (sx, sy) = snap(frac("target_x"), frac("target_y"))
                 val (tx, ty) = thirdsFor(sx, sy)
+                // A check the phone can't actually do falls back to "ask again".
+                val finalCheck = when {
+                    check == CheckBy.Angle && angle == null -> CheckBy.Other
+                    check == CheckBy.Zoom && zoomTo == null -> CheckBy.Other
+                    check == CheckBy.Frame && (tx == null || ty == null) -> CheckBy.Other
+                    // Only one position move: a second one would pull the subject to another spot.
+                    check == CheckBy.Frame && frameMoves++ > 0 -> CheckBy.Other
+                    else -> check
+                }
+                // User test 2026-10-09: the words said "step right" while the circle needed the phone to go left. The
+                // position step is now worded from where the subject is and where the circle is, so they always agree.
+                val action = if (finalCheck == CheckBy.Frame && box != null && tx != null && ty != null)
+                    frameAction(box.centerX() - tx, box.centerY() - ty, kind, o.optString("subject")) ?: m.optString("action")
+                else m.optString("action")
                 Move(
-                    action = m.optString("action"),
+                    action = action,
                     why = m.optString("why"),
-                    // A check the phone can't actually do falls back to "ask again".
-                    check = when {
-                        check == CheckBy.Angle && angle == null -> CheckBy.Other
-                        check == CheckBy.Zoom && zoomTo == null -> CheckBy.Other
-                        check == CheckBy.Frame && (tx == null || ty == null) -> CheckBy.Other
-                        // Only one position move: a second one would pull the subject to another spot.
-                        check == CheckBy.Frame && frameMoves++ > 0 -> CheckBy.Other
-                        else -> check
-                    },
+                    check = finalCheck,
                     // Never ask for more than 60% of the height: closer than that pushed people into distortion,
                     // their own shadow and out-of-focus shots (group feedback 2026-10-07).
                     angle = angle, targetX = tx, targetY = ty, size = frac("size")?.coerceAtMost(0.6f), zoom = zoomTo,
@@ -460,6 +500,13 @@ object Photographer {
         )
     } catch (e: Exception) {
         null
+    }
+
+    /** "Move the phone a little left so the mug sits in the circle", from how far the subject is from the circle. */
+    private fun frameAction(dx: Float, dy: Float, kind: ShotKind, subject: String): String? {
+        if (kotlin.math.abs(dx) < 0.05f && kotlin.math.abs(dy) < 0.05f) return null
+        val what = subject.trim().ifBlank { "it" }.let { if (it == "it" || it.startsWith("the ", ignoreCase = true)) it else "the $it" }
+        return "${moveWords(dx, dy, kind)} so $what sits in the circle"
     }
 
     private fun parseReview(text: String, count: Int): Review? = try {

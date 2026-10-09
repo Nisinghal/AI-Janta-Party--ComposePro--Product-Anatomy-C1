@@ -90,12 +90,18 @@ fun AppRoot(state: AppState) {
                 onOpenSettings = {
                     context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)))
                 },
+                autoShot = state.autoShot,
+                onAutoShot = { state.switchAutoShot(it) },
             )
-            Screen.Tour -> TourScreen(onDone = {
-                state.markTourSeen()
-                state.screen = state.tourReturnsTo
-                state.tourReturnsTo = Screen.Camera
-            })
+            Screen.Tour -> TourScreen(
+                onDone = {
+                    state.markTourSeen()
+                    state.screen = state.tourReturnsTo
+                    state.tourReturnsTo = Screen.Camera
+                },
+                autoShot = state.autoShot,
+                onAutoShot = { state.switchAutoShot(it) },
+            )
             Screen.Camera -> CameraScreen(state)
             Screen.Review -> ReviewScreen(state)
             Screen.Gallery -> GalleryScreen(state)

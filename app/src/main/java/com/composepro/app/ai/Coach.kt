@@ -80,6 +80,30 @@ fun angleHint(angle: ShotAngle?, tilt: Tilt): String? {
     }
 }
 
+/**
+ * Which way to move, in the app's fixed plain words, from where the subject is (dx, dy = subject minus circle, as
+ * fractions of the view). The phone goes towards the subject; the subject then slides into the circle.
+ */
+fun moveWords(dx: Float, dy: Float, kind: ShotKind): String = if (abs(dx) >= abs(dy)) {
+    val side = if (dx > 0) "right" else "left"
+    if (kind == ShotKind.TableTop) "Move the phone a little $side" else "Step $side"
+} else if (dy < 0) "Point the camera a little higher" else "Point the camera a little lower"
+
+/** The live line under a position step, from the dot and the circle right now, so it always matches what's drawn. */
+fun frameHint(subject: Thing, move: Move, kind: ShotKind): String? {
+    val tx = move.targetX ?: return null
+    val ty = move.targetY ?: return null
+    val dx = subject.cx - tx; val dy = subject.cy - ty
+    if (hypot(dx, dy) >= SPOT) return "${moveWords(dx, dy, kind)} until the dot is in the circle."
+    val size = move.size ?: return "That's it. Hold it there."
+    val h = subject.box.height()
+    return when {
+        h < size * (1 - SIZE_SLACK) -> "Now step a little closer, until it fills the white box."
+        h > size * (1 + SIZE_SLACK) -> "Now step back a little, until it fits the white box."
+        else -> "That's it. Hold it there."
+    }
+}
+
 /** The on-phone thing that best overlaps [box] (the photographer's subject), if any overlaps enough. */
 fun matchSubject(box: RectF?, things: List<Thing>): Thing? {
     if (box == null) return things.firstOrNull()

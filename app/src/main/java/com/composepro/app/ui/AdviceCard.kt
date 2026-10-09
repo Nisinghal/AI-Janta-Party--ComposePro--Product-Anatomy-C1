@@ -65,7 +65,7 @@ data class StepView(val move: Move, val done: Boolean, val live: Boolean, val no
 fun CoachCard(
     frame: String?, frameWhy: String, steps: List<StepView>, ready: Boolean, checking: Boolean, error: String?,
     onClose: () -> Unit, onTick: (Int) -> Unit, onNewSteps: () -> Unit, newScene: Boolean = false,
-    angleHint: String? = null, modifier: Modifier = Modifier,
+    angleHint: String? = null, frameHint: String? = null, modifier: Modifier = Modifier,
 ) {
     // All steps at once under the camera view (user request, 2026-10-06). The one to do now is bold and carries its
     // hint; the camera view only shows the ring/box for that one.
@@ -115,8 +115,9 @@ fun CoachCard(
                     )
                     if (now) {
                         val hint = when {
+                            s.move.check == CheckBy.Frame && frameHint != null -> frameHint
                             s.move.check == CheckBy.Frame && s.move.size != null -> "Move until the outline fills the white box."
-                            s.move.check == CheckBy.Frame -> "Follow the arrows ››› until the dot is inside the circle."
+                            s.move.check == CheckBy.Frame -> "Move the phone until the dot is inside the circle."
                             s.move.check == CheckBy.Angle && s.live && angleHint != null -> angleHint
                             s.move.check == CheckBy.Zoom -> "Tap ${s.move.zoom?.let { if (it < 1f) String.format(java.util.Locale.US, "%.1f", it) else it.toInt().toString() }}× at the bottom-right of the camera view."
                             s.note.isNotBlank() && !s.note.equals("Done", ignoreCase = true) -> s.note
@@ -146,7 +147,7 @@ fun CoachCard(
 
 /** The same card while the steps are being worked out, so there's only ever one thing to read. */
 @Composable
-fun FindingCard(modifier: Modifier = Modifier) {
+fun FindingCard(looking: Boolean = false, modifier: Modifier = Modifier) {
     Row(
         modifier.widthIn(max = 420.dp).fillMaxWidth().clip(CPShape.Card).background(CP.Glass.copy(alpha = 0.9f))
             .padding(horizontal = 16.dp, vertical = 14.dp),
@@ -154,39 +155,17 @@ fun FindingCard(modifier: Modifier = Modifier) {
     ) {
         CircularProgressIndicator(Modifier.size(18.dp), color = CP.OnDark, strokeWidth = 2.dp)
         Column(Modifier.padding(start = 12.dp)) {
-            Text("Finding the best shot…", style = CPType.BodyStrong, color = CP.OnDark)
-            Text("Hold the phone still for a second.", style = CPType.Caption, color = CP.OnDark.copy(alpha = 0.75f))
+            // First a 3-second look at what's in view, then the photographer writes the steps (user decision 2026-10-09).
+            Text(if (looking) "Looking at what's here…" else "Writing your steps…", style = CPType.BodyStrong, color = CP.OnDark)
+            Text(if (looking) "Hold the phone still for 3 seconds." else "Keep holding still.", style = CPType.Caption, color = CP.OnDark.copy(alpha = 0.75f))
         }
     }
 }
 
-/**
- * Which way to move the phone, read from the step's words ("Move the phone slightly to the right" → right).
- * Used when the subject isn't being followed, so there's still an arrow to go by.
- */
-fun phoneDirection(action: String): Offset? {
-    val t = action.lowercase()
-    val x = when {
-        Regex("""\bleft\b""").containsMatchIn(t) -> -1f
-        Regex("""\bright\b(?!\s+(in|at|there|on|now|away))""").containsMatchIn(t) -> 1f
-        else -> 0f
-    }
-    val y = when {
-        Regex("""\b(up|higher|raise)\b""").containsMatchIn(t) -> -1f
-        Regex("""\b(down|lower)\b""").containsMatchIn(t) -> 1f
-        else -> 0f
-    }
-    if (x == 0f && y == 0f) return null
-    val len = kotlin.math.sqrt(x * x + y * y)
-    return Offset(x / len, y / len)
-}
 
 /**
- * When the first open step is about where the subject sits: a ring where it should go, a dot on it now, and moving
- * chevrons from the ring showing which way to MOVE THE PHONE (user test 2026-10-08: "this arrow guide is not working").
- * The old arrow ran from the dot to the ring, the way the subject has to travel on screen, which is the opposite of
- * the way the phone moves, so "move the phone right" came with an arrow pointing left. When the subject isn't being
- * followed (no dot), the chevrons come from the step's own words ([phoneDir]).
+ * When the first open step is about where the subject sits: a ring where it should go and a dot on the subject now.
+ * No arrows (user decision 2026-10-09): the card says which way to move, from the same two points.
  */
 @Composable
 fun CoachLayer(target: P?, subject: P?, subjectBox: RectF?, targetSize: Float?, hit: Boolean, modifier: Modifier = Modifier) {
@@ -210,25 +189,22 @@ fun CoachLayer(target: P?, subject: P?, subjectBox: RectF?, targetSize: Float?, 
                 CornerRadius(14f * density), style = Stroke(2f * density, pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f * density, 6f * density))),
             )
         }
-        // The box to bring the object into (user request 2026-10-09: "a box to bring the object here"). As big as the
-        // subject should be when the step says so, else as big as it is now; a soft fill and bold corners so it reads
-        // as a place, with "Bring it here" over it (StepCues).
-        val bh = (targetHalfHeight(targetSize, subjectBox) * 2f) * h
-        val aspect = subjectBox?.let { (it.width() * w) / (it.height() * h).coerceAtLeast(1f) } ?: 1f
-        val bw = (bh * aspect).coerceIn(56f * density, w * 0.98f)
-        val tl = Offset(to.x - bw / 2, to.y - bh / 2)
-        drawRoundRect(Color.White.copy(alpha = 0.12f), tl, Size(bw, bh), CornerRadius(16f * density))
-        drawRoundRect(CP.OnDark.copy(alpha = 0.5f), tl, Size(bw, bh), CornerRadius(16f * density), style = Stroke(1.5f * density))
-        val arm = minOf(bw, bh) * 0.28f
-        for ((sx, sy) in listOf(-1f to -1f, 1f to -1f, -1f to 1f, 1f to 1f)) {
-            val c = Offset(to.x + sx * bw / 2, to.y + sy * bh / 2)
-            val path = Path().apply { moveTo(c.x - sx * arm, c.y); lineTo(c.x, c.y); lineTo(c.x, c.y - sy * arm) }
-            drawPath(path, CP.OnDark, style = Stroke(4f * density, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        // When the step is about size too: a white box at the spot, as big as the subject should be
+        // (its height from the photographer, its width keeping the subject's own shape).
+        if (targetSize != null) {
+            val bh = targetSize * h
+            val aspect = subjectBox?.let { (it.width() * w) / (it.height() * h).coerceAtLeast(1f) } ?: 1f
+            val bw = (bh * aspect).coerceAtMost(w * 0.98f)
+            drawRoundRect(
+                CP.OnDark, Offset(to.x - bw / 2, to.y - bh / 2), Size(bw, bh), CornerRadius(16f * density),
+                style = Stroke(3f * density),
+            )
         }
         drawCircle(CP.Glass, ring, to)
         drawCircle(CP.OnDark, ring, to, style = Stroke(3f * density))
 
-        // The object's dot, joined to the ring by a faint dashed line. Which way to go is the big edge arrow (StepCues).
+        // The object's dot, joined to the ring by a faint dashed line. Which way to go is said in words on the card,
+        // worked out from these same two points, so the words and the picture always agree.
         subject?.let { p ->
             val from = Offset(p.x * w, p.y * h)
             val d = from - to
@@ -242,7 +218,4 @@ fun CoachLayer(target: P?, subject: P?, subjectBox: RectF?, targetSize: Float?, 
     }
 }
 
-/** Half the height of the "bring it here" box, as a fraction of the view: the asked-for size, else the subject's own. */
-fun targetHalfHeight(targetSize: Float?, subjectBox: RectF?): Float =
-    ((targetSize ?: subjectBox?.height() ?: 0.22f) / 2f).coerceIn(0.06f, 0.35f)
 

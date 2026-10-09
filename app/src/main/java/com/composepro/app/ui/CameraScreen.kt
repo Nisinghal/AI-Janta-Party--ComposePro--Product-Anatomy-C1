@@ -516,6 +516,8 @@ fun CameraScreen(state: AppState) {
     // once the person has changed something and holds still, spaced out to stay inside Gemini's free limits.
     // A new look (scene changed) clears the old plan and asks again. ----
     var askedFor by remember { mutableLongStateOf(-1L) }
+    // When the current 3-second look began (reset by ↻ and by a dark view).
+    var lookFrom by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     var scene by remember { mutableStateOf<List<Int>>(emptyList()) }
     var sceneChangedAt by remember { mutableLongStateOf(0L) }
     var sceneAtCheck by remember { mutableStateOf<List<Int>>(emptyList()) }
@@ -529,17 +531,21 @@ fun CameraScreen(state: AppState) {
         if (next != scene) { scene = next; sceneChangedAt = SystemClock.elapsedRealtime() }
     }
     LaunchedEffect(now) {
-        if (!auto || busy || dark) return@LaunchedEffect
+        if (!auto || busy) return@LaunchedEffect
         val c = coach
         if (c == null) {
-            // Not on a black or very dark view (phone face down, lens covered): it got "ready, 0 of 0 done" back once,
-            // and Auto shot would then have taken a black photo (tester build check 2026-10-09).
-            if (closedFor == scanStart || frame == null || frame!!.meanY < com.composepro.app.camera.Thresholds.TOO_DARK) return@LaunchedEffect
-            val firstAsk = askedFor != scanStart && now - scanStart >= 800
+            // First a 3-second look, then the steps (user decision 2026-10-09: "give the camera 3 seconds to detect the
+            // object, then give instructions; if the user reloads, take 3 seconds again"). The look starts again
+            // whenever the view is too dark (phone face down, lens covered: it got "ready, 0 of 0 done" back once,
+            // and Auto shot would then have taken a black photo).
+            if (closedFor == scanStart || frame == null) return@LaunchedEffect
+            if (dark || frame!!.meanY < com.composepro.app.camera.Thresholds.TOO_DARK) { lookFrom = now; return@LaunchedEffect }
+            val firstAsk = askedFor != lookFrom && now - lookFrom >= SCAN_MS
             val retry = askError != null && now - lastReqAt > 30_000
-            if (firstAsk || retry) { askedFor = scanStart; askPhotographer() }
+            if (firstAsk || retry) { askedFor = lookFrom; askPhotographer() }
             return@LaunchedEffect
         }
+        if (dark) return@LaunchedEffect
         // Turned to something else: the subject has been gone 2.5 s and the view looks clearly different from when the
         // plan came (or brighter/darker, or at another angle). Old steps for the old subject are dropped and new ones
         // asked for (classmate N: "if you change focus to another subject it still gives suggestions for the old one").
@@ -672,16 +678,6 @@ fun CameraScreen(state: AppState) {
             hit = steps.getOrNull(ringStep)?.done == true,
             modifier = Modifier.fillMaxSize(),
         )
-        // The step to do now, shown on the picture: a big arrow, brackets, a dashed zoom box, or "Bring it here".
-        val nowStep = steps.firstOrNull { !it.done }
-        val cue = nowStep?.let { cueFor(it, tilt, coachSubject?.let { s -> P(s.cx, s.cy) }) }
-        StepCues(
-            cue = cue,
-            target = ringMove?.let { P(it.targetX ?: 0.5f, it.targetY ?: 0.5f) }?.takeIf { steps.getOrNull(ringStep)?.done != true },
-            targetHalfHeight = ringMove?.let { targetHalfHeight(it.size, coachSubject?.box) },
-            subjectBox = coachSubject?.box,
-            modifier = Modifier.fillMaxSize(),
-        )
         ZoomChip(shownZoom, now - zoomShownAt < 900, Modifier.align(Alignment.Center))
         FocusRing(focusAt, now - focusShownAt < 1200)
         Box(Modifier.fillMaxSize().alpha(flash.value).background(CP.OnDark))
@@ -722,13 +718,6 @@ fun CameraScreen(state: AppState) {
             toast?.let { GlassToast(it, Modifier.padding(bottom = CPSpace.S2)) }
             if (autoProgress > 0f && toast == null) GlassToast("Hold still…", Modifier.padding(bottom = CPSpace.S2))
             GuideChip(pick, guideVisible && !explaining && !photographerOn, ::lookAgain, Modifier.padding(bottom = CPSpace.S2))
-            // A zoom step points at the button to tap.
-            steps.firstOrNull { !it.done }?.move?.takeIf { it.check == CheckBy.Zoom }?.zoom?.let { z ->
-                val label = if (z < 1f) String.format(java.util.Locale.US, "%.1f×", z) else "${z.toInt()}×"
-                Box(Modifier.fillMaxWidth().padding(end = CPSpace.S2, bottom = 6.dp), contentAlignment = Alignment.CenterEnd) {
-                    GlassToast("Tap $label ↓")
-                }
-            }
             Row(
                 Modifier.fillMaxWidth().padding(start = CPSpace.S2, end = CPSpace.S2, bottom = CPSpace.S2),
                 horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically,
@@ -743,15 +732,16 @@ fun CameraScreen(state: AppState) {
                 ZoomButtons(current = shownZoom, stops = zoomStops, onPick = ::pickZoom)
             }
             val cardSpot = Modifier.padding(start = CPSpace.S2, end = CPSpace.S2, bottom = CPSpace.S3)
-            if (coach == null && photographerOn) FindingCard(cardSpot)
+            if (coach == null && photographerOn) FindingCard(looking = !busy && now - lookFrom < SCAN_MS, modifier = cardSpot)
             coach?.let {
                 CoachCard(
                     frame = it.advice.frame?.label, frameWhy = it.advice.frameWhy,
                     steps = steps, ready = allDone, checking = busy, error = checkError,
                     onClose = { closeCoach(); closedFor = scanStart },
                     onTick = { i -> manualDone[i] = !(steps.getOrNull(i)?.done ?: false) },
-                    onNewSteps = { closeCoach(); askedFor = -1L },
+                    onNewSteps = { closeCoach(); askedFor = -1L; lookFrom = SystemClock.elapsedRealtime() },
                     newScene = newScene,
+                    frameHint = ringMove?.let { m -> coachSubject?.let { s -> com.composepro.app.ai.frameHint(s, m, it.advice.kind) } },
                     angleHint = steps.firstOrNull { !it.done }?.move?.takeIf { it.check == CheckBy.Angle }?.let { com.composepro.app.ai.angleHint(it.angle, tilt) },
                     modifier = cardSpot,
                 )

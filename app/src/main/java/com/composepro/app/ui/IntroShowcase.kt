@@ -30,6 +30,8 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -72,7 +74,7 @@ import kotlin.math.roundToInt
  * Each card plays one of the app's real camera motions: move until the dot is in the ring, tilt until level, zoom 2×.
  * The step's red number turns into a green ✓, the shutter taps, and the clean photo is revealed.
  */
-private enum class Demo { Move, Tilt, Zoom }
+private enum class Demo { Move, Tilt, Zoom, Auto }
 
 private data class Slide(val demo: Demo, val step: String, val title: String, val body: String)
 
@@ -80,6 +82,8 @@ private val slides = listOf(
     Slide(Demo.Move, "Move until the dot is in the ring", "Point at anything", "Compose Pro sees what's in the frame and shows you where it should go."),
     Slide(Demo.Tilt, "Tilt until the line is level", "Follow the steps", "Each step has a red number. It turns into a green ✓ when you've done it."),
     Slide(Demo.Zoom, "Tap 2× to get closer", "Then take the shot", "When the steps are green, tap the shutter. It works any time."),
+    // Auto shot (user request 2026-10-09: "make auto capture a toggle and show it in the onboarding").
+    Slide(Demo.Auto, "Steps done. Hold still…", "Or let it shoot for you", "Turn on Auto shot. Do the steps, hold still, and it takes the photo."),
 )
 
 private const val CYCLE = 4600   // ms each card plays
@@ -136,8 +140,10 @@ fun IntroShowcase(modifier: Modifier = Modifier) {
                         )
                     }
                 }
-                // The floating shutter, tapped by the demo once the step is green
+                // The floating shutter, tapped by the demo once the step is green (on the Auto shot card, by itself)
+                val autoCard = slides[active % slides.size].demo == Demo.Auto
                 DemoShutter(
+                    count = if (autoCard && p < 0.62f) phase(p, 0.28f, 0.6f) else 0f,
                     press = bump(p, 0.57f, 0.62f, 0.68f),
                     ripple = if (p in 0.62f..0.82f) phase(p, 0.62f, 0.82f) else 0f,
                     ready = phase(p, 0.50f, 0.56f) * (1 - phase(p, 0.62f, 0.66f)),
@@ -169,8 +175,13 @@ fun IntroShowcase(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun DemoShutter(press: Float, ripple: Float, ready: Float, modifier: Modifier = Modifier) {
+private fun DemoShutter(press: Float, ripple: Float, ready: Float, modifier: Modifier = Modifier, count: Float = 0f) {
     Box(modifier.size(76.dp), contentAlignment = Alignment.Center) {
+        // Auto shot's countdown: a green ring filling round the shutter
+        if (count > 0f) Canvas(Modifier.size(84.dp)) {
+            val sw = 4.dp.toPx()
+            drawArc(CP.Right, -90f, 360f * count, false, Offset(sw / 2, sw / 2), Size(size.width - sw, size.height - sw), style = Stroke(sw, cap = StrokeCap.Round))
+        }
         if (ripple > 0f) Box(
             Modifier.size(72.dp).graphicsLayer { val s = 1f + 0.7f * ripple; scaleX = s; scaleY = s; alpha = 1 - ripple }
                 .border(3.dp, CP.OnDark, CircleShape),
@@ -189,7 +200,7 @@ private fun DemoShutter(press: Float, ripple: Float, ready: Float, modifier: Mod
 private fun DemoCard(slide: Slide, p: Float, modifier: Modifier = Modifier) {
     val overlays = phase(p, 0.04f, 0.14f) * (1 - phase(p, 0.62f, 0.67f))
     val act = phase(p, 0.18f, 0.50f)        // the camera motion
-    val done = phase(p, 0.50f, 0.56f)       // red number → green ✓
+    val done = if (slide.demo == Demo.Auto) 1f else phase(p, 0.50f, 0.56f)       // red number → green ✓
     val flash = bump(p, 0.61f, 0.635f, 0.72f)
     val shot = p >= 0.63f
     val reveal = phase(p, 0.64f, 0.86f)     // blur → sharp
@@ -206,6 +217,7 @@ private fun DemoCard(slide: Slide, p: Float, modifier: Modifier = Modifier) {
                 Demo.Move -> tableScene(act)
                 Demo.Tilt -> plantScene(act)
                 Demo.Zoom -> hillScene(act)
+                Demo.Auto -> tableScene(1f)
             }
         }
         Canvas(Modifier.fillMaxSize().alpha(overlays)) {
@@ -214,6 +226,7 @@ private fun DemoCard(slide: Slide, p: Float, modifier: Modifier = Modifier) {
                 Demo.Move -> moveOverlay(act, done)
                 Demo.Tilt -> tiltOverlay(act, done)
                 Demo.Zoom -> zoomOverlay(act, done)
+                Demo.Auto -> moveOverlay(1f, 1f)
             }
         }
         StepChip(slide.step, done, Modifier.align(Alignment.TopCenter).padding(top = 14.dp, start = 10.dp, end = 10.dp).alpha(overlays))
@@ -222,6 +235,10 @@ private fun DemoCard(slide: Slide, p: Float, modifier: Modifier = Modifier) {
             Demo.Zoom -> {
                 ZoomPills(act > 0.01f, Modifier.align(Alignment.BottomEnd).padding(end = 14.dp, bottom = 48.dp).alpha(overlays))
                 GlassLabel("%.1f×".format(1f + act), Modifier.align(Alignment.Center).alpha(overlays * phase(p, 0.17f, 0.21f) * (1 - phase(p, 0.5f, 0.56f))))
+            }
+            Demo.Auto -> {
+                AutoPill(on = p > 0.12f, Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = 48.dp).alpha(overlays))
+                GlassLabel("Hold still…", Modifier.align(Alignment.Center).padding(top = 90.dp).alpha(overlays * phase(p, 0.26f, 0.3f)))
             }
             else -> {}
         }
@@ -240,6 +257,20 @@ private fun StepChip(text: String, done: Float, modifier: Modifier = Modifier) {
             Text(if (done > 0.5f) "✓" else "1", style = CPType.CaptionMedium, color = CP.OnDark)
         }
         Text(text, style = CPType.CaptionMedium, color = CP.OnDark, maxLines = 1)
+    }
+}
+
+/** The camera's Auto shot pill, switching on. */
+@Composable
+private fun AutoPill(on: Boolean, modifier: Modifier = Modifier) {
+    Row(
+        modifier.clip(CPShape.Pill).background(if (on) CP.Right else Color.Black.copy(alpha = 0.55f)).padding(start = 6.dp, end = 12.dp, top = 5.dp, bottom = 5.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(Modifier.size(20.dp).border(1.5.dp, CP.OnDark, CircleShape), contentAlignment = Alignment.Center) {
+            Text("A", style = CPType.CaptionMedium, color = CP.OnDark)
+        }
+        Text(if (on) "Auto shot" else "Auto shot off", style = CPType.CaptionMedium, color = CP.OnDark)
     }
 }
 
@@ -418,5 +449,25 @@ private fun DrawScope.hillScene(act: Float) {
             lineTo(w, h); lineTo(0f, h); close()
         }
         drawPath(front, Color(0xFF4E8552))
+    }
+}
+
+/** "Auto shot" with an on/off switch, for the onboarding (dark background). Same setting as the camera's A button. */
+@Composable
+fun AutoShotRow(on: Boolean, onChange: (Boolean) -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier.fillMaxWidth().clip(CPShape.Card).background(Color.White.copy(alpha = 0.08f))
+            .toggleable(value = on, role = Role.Switch) { onChange(it) }
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("Auto shot", style = CPType.BodyMedium, color = CP.OnDark)
+            Text("It takes the photo when the steps are done and you hold still.", style = CPType.Caption, color = CP.OnDark.copy(alpha = 0.6f))
+        }
+        val x by androidx.compose.animation.core.animateDpAsState(if (on) 20.dp else 0.dp, label = "thumb")
+        Box(Modifier.size(width = 52.dp, height = 32.dp).clip(CPShape.Pill).background(if (on) CP.Right else Color.White.copy(alpha = 0.25f))) {
+            Box(Modifier.padding(start = 3.dp + x, top = 3.dp).size(26.dp).clip(CircleShape).background(CP.OnDark))
+        }
     }
 }
