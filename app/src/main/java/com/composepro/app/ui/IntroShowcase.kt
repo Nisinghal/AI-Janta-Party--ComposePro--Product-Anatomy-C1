@@ -30,8 +30,6 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.semantics.Role
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -83,7 +81,7 @@ private val slides = listOf(
     Slide(Demo.Tilt, "Tilt until the line is level", "Follow the steps", "Each step has a red number. It turns into a green ✓ when you've done it."),
     Slide(Demo.Zoom, "Tap 2× to get closer", "Then take the shot", "When the steps are green, tap the shutter. It works any time."),
     // Auto shot (user request 2026-10-09: "make auto capture a toggle and show it in the onboarding").
-    Slide(Demo.Auto, "Steps done. Hold still…", "Or let it shoot for you", "Turn on Auto shot. Do the steps, hold still, and it takes the photo."),
+    Slide(Demo.Auto, "Steps done. Hold still…", "Or let it shoot for you", "Turn on Auto shot with the A button by the flash. Hold still and it takes the photo."),
 )
 
 private const val CYCLE = 4600   // ms each card plays
@@ -217,7 +215,7 @@ private fun DemoCard(slide: Slide, p: Float, modifier: Modifier = Modifier) {
                 Demo.Move -> tableScene(act)
                 Demo.Tilt -> plantScene(act)
                 Demo.Zoom -> hillScene(act)
-                Demo.Auto -> tableScene(1f)
+                Demo.Auto -> cakeScene()
             }
         }
         Canvas(Modifier.fillMaxSize().alpha(overlays)) {
@@ -226,7 +224,7 @@ private fun DemoCard(slide: Slide, p: Float, modifier: Modifier = Modifier) {
                 Demo.Move -> moveOverlay(act, done)
                 Demo.Tilt -> tiltOverlay(act, done)
                 Demo.Zoom -> zoomOverlay(act, done)
-                Demo.Auto -> moveOverlay(1f, 1f)
+                Demo.Auto -> focusOverlay(phase(p, 0.10f, 0.26f), phase(p, 0.26f, 0.30f))
             }
         }
         StepChip(slide.step, done, Modifier.align(Alignment.TopCenter).padding(top = 14.dp, start = 10.dp, end = 10.dp).alpha(overlays))
@@ -420,6 +418,55 @@ private fun DrawScope.plantScene(act: Float) {
     }
 }
 
+/**
+ * The camera adjusting by itself: a focus box closes in on the cake ([settle] 0 → 1), then turns green ([ready]).
+ * Different from the other cards on purpose (user 2026-10-09: "the illustration is the same for auto and normal capture").
+ */
+private fun DrawScope.focusOverlay(settle: Float, ready: Float) {
+    val w = size.width; val h = size.height
+    val c = Offset(0.54f * w, 0.57f * h)
+    val k = 1.35f - 0.35f * settle
+    val hw = 0.27f * w * k; val hh = 0.15f * h * k
+    val col = lerp(Color.White, CP.Right, ready)
+    val arm = 0.07f * w
+    val sw = 3.dp.toPx()
+    for ((sx, sy) in listOf(-1f to -1f, 1f to -1f, -1f to 1f, 1f to 1f)) {
+        val corner = c + Offset(sx * hw, sy * hh)
+        drawLine(col, corner, corner - Offset(sx * arm, 0f), sw, StrokeCap.Round)
+        drawLine(col, corner, corner - Offset(0f, sy * arm), sw, StrokeCap.Round)
+    }
+}
+
+/** A slice of strawberry cake on a plate, on a peach table against a pale blue wall. */
+private fun DrawScope.cakeScene() {
+    val w = size.width; val h = size.height
+    drawRect(Brush.verticalGradient(listOf(Color(0xFFE3ECF3), Color(0xFFC9D8E5)), 0f, 0.56f * h), Offset.Zero, Size(w, 0.56f * h))
+    drawRect(Brush.verticalGradient(listOf(Color(0xFFF4CDBB), Color(0xFFE2A58F)), 0.56f * h, h), Offset(0f, 0.56f * h), Size(w, 0.44f * h))
+    drawRect(Color(0xFFF8DCCD), Offset(0f, 0.56f * h), Size(w, 0.008f * h))
+    // a small vase with a flower, out of focus at the back
+    drawRect(Color(0xFFB9C9D8), Offset(0.12f * w, 0.42f * h), Size(0.08f * w, 0.14f * h))
+    drawLine(Color(0xFF7FA37A), Offset(0.16f * w, 0.42f * h), Offset(0.16f * w, 0.33f * h), 0.012f * w)
+    drawCircle(Color(0xFFF3B6C3), 0.035f * w, Offset(0.16f * w, 0.32f * h))
+    // plate
+    drawOval(Color.Black.copy(alpha = 0.1f), Offset(0.2f * w, 0.62f * h), Size(0.68f * w, 0.1f * h))
+    drawOval(Color(0xFFFBF8F3), Offset(0.2f * w, 0.6f * h), Size(0.68f * w, 0.1f * h))
+    drawOval(Color(0xFFEDE7DE), Offset(0.28f * w, 0.615f * h), Size(0.52f * w, 0.07f * h))
+    // cake slice: top (frosting), side, front (sponge and cream)
+    val top = Path().apply { moveTo(0.36f * w, 0.53f * h); lineTo(0.62f * w, 0.53f * h); lineTo(0.76f * w, 0.47f * h); close() }
+    val side = Path().apply { moveTo(0.62f * w, 0.53f * h); lineTo(0.76f * w, 0.47f * h); lineTo(0.76f * w, 0.58f * h); lineTo(0.62f * w, 0.645f * h); close() }
+    drawPath(side, Color(0xFFE6C287))
+    drawRect(Color(0xFFF4DCA8), Offset(0.36f * w, 0.53f * h), Size(0.26f * w, 0.115f * h))
+    for (y in listOf(0.56f, 0.6f)) drawRect(Color(0xFFFFF7EA), Offset(0.36f * w, y * h), Size(0.26f * w, 0.012f * h))
+    drawPath(top, Color(0xFFF49BB0))
+    drawRect(Color(0xFFF49BB0), Offset(0.36f * w, 0.525f * h), Size(0.26f * w, 0.012f * h))
+    // strawberry
+    drawCircle(Color(0xFFE04850), 0.04f * w, Offset(0.53f * w, 0.5f * h))
+    drawCircle(Color(0xFFFFD7DA), 0.006f * w, Offset(0.52f * w, 0.495f * h))
+    drawOval(Color(0xFF5E9E55), Offset(0.51f * w, 0.465f * h), Size(0.05f * w, 0.014f * h))
+    // fork
+    drawLine(Color(0xFFB8BEC6), Offset(0.7f * w, 0.67f * h), Offset(0.86f * w, 0.62f * h), 0.014f * w, StrokeCap.Round)
+}
+
 /** Hills at sunset with a lone tree. The view zooms 2× into the tree and the sun. */
 private fun DrawScope.hillScene(act: Float) {
     val w = size.width; val h = size.height
@@ -452,22 +499,3 @@ private fun DrawScope.hillScene(act: Float) {
     }
 }
 
-/** "Auto shot" with an on/off switch, for the onboarding (dark background). Same setting as the camera's A button. */
-@Composable
-fun AutoShotRow(on: Boolean, onChange: (Boolean) -> Unit, modifier: Modifier = Modifier) {
-    Row(
-        modifier.fillMaxWidth().clip(CPShape.Card).background(Color.White.copy(alpha = 0.08f))
-            .toggleable(value = on, role = Role.Switch) { onChange(it) }
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text("Auto shot", style = CPType.BodyMedium, color = CP.OnDark)
-            Text("It takes the photo when the steps are done and you hold still.", style = CPType.Caption, color = CP.OnDark.copy(alpha = 0.6f))
-        }
-        val x by androidx.compose.animation.core.animateDpAsState(if (on) 20.dp else 0.dp, label = "thumb")
-        Box(Modifier.size(width = 52.dp, height = 32.dp).clip(CPShape.Pill).background(if (on) CP.Right else Color.White.copy(alpha = 0.25f))) {
-            Box(Modifier.padding(start = 3.dp + x, top = 3.dp).size(26.dp).clip(CircleShape).background(CP.OnDark))
-        }
-    }
-}
