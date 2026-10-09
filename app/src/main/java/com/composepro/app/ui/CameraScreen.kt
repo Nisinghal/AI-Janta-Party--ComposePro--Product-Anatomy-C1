@@ -532,7 +532,9 @@ fun CameraScreen(state: AppState) {
         if (!auto || busy || dark) return@LaunchedEffect
         val c = coach
         if (c == null) {
-            if (closedFor == scanStart || frame == null) return@LaunchedEffect
+            // Not on a black or very dark view (phone face down, lens covered): it got "ready, 0 of 0 done" back once,
+            // and Auto shot would then have taken a black photo (tester build check 2026-10-09).
+            if (closedFor == scanStart || frame == null || frame!!.meanY < com.composepro.app.camera.Thresholds.TOO_DARK) return@LaunchedEffect
             val firstAsk = askedFor != scanStart && now - scanStart >= 800
             val retry = askError != null && now - lastReqAt > 30_000
             if (firstAsk || retry) { askedFor = scanStart; askPhotographer() }
@@ -629,7 +631,7 @@ fun CameraScreen(state: AppState) {
         if (kotlin.math.abs(shownZoom - z) > 0.05f) pickZoom(z)
     }
     val shotReady = when {
-        unavailable || taking || dark -> false
+        unavailable || taking || dark || (frame?.meanY ?: 0f) < com.composepro.app.camera.Thresholds.TOO_DARK -> false
         coach != null -> allDone
         photographerOn -> false            // the steps are still on their way
         !state.tipsOn -> true
@@ -734,6 +736,7 @@ fun CameraScreen(state: AppState) {
                     onTick = { i -> manualDone[i] = !(steps.getOrNull(i)?.done ?: false) },
                     onNewSteps = { closeCoach(); askedFor = -1L },
                     newScene = newScene,
+                    angleHint = steps.firstOrNull { !it.done }?.move?.takeIf { it.check == CheckBy.Angle }?.let { com.composepro.app.ai.angleHint(it.angle, tilt) },
                     modifier = cardSpot,
                 )
             }

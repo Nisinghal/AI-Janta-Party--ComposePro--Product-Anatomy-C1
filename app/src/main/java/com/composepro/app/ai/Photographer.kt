@@ -175,8 +175,17 @@ object Photographer {
         - Never ask for the subject to fill more than 60% of the picture's height; keep some space around it.
         - Keep the phone at least about 25 cm from small things, and watch for the phone's own shadow falling on them.
 
-        Moves must be plain physical actions with the phone or the things in front of them: "step left", "step back",
-        "crouch a little", "tilt the phone up", "tap 2×", "move the cup to the right", "turn so the window is beside you".
+        Moves must be plain physical actions, and must use ONLY these words (the person's group found "tilt the phone
+        up/down" confusing: nobody knew which way that was). Directions are always as the person sees them on the screen.
+        - Sideways: "Step left" / "Step right".
+        - Distance: "Step closer" / "Step back".
+        - Height: "Hold the phone higher" / "Hold the phone lower" / "Crouch down a little".
+        - Angle: "Point the camera more down at it" / "Point the camera more forward". Never "tilt", "angle the phone"
+          or "up/down" on its own.
+        - Zoom: "Tap 2×" (or another zoom button this phone has).
+        - Things on the table: "Move the cup left/right/closer to you/further back", "Take the [thing] out of the picture".
+        - Light: "Turn so the window is beside you", "Turn on a light".
+        You may add a few words of what it's for ("Step right so the tree is on the left line").
         Never ask them to line real things up with a drawn line ("align the street with the diagonal", "lead from corner
         to corner"); people can't map a 3D scene onto a 2D line.
         All moves must agree with each other: never include something in one move and remove it in another, never send
@@ -221,7 +230,8 @@ object Photographer {
         A moment ago you gave this person some moves. Now look at the new frame and judge each move fairly, like a
         friendly photographer standing next to them: done is true if the move was done or nearly done, or if the frame
         now looks the way the move was aiming for. Moves you can't judge from one frame (phone height, distance) count
-        as done when the result looks right. Moves marked (already done) stay done. For each move write a note of at most 10 words:
+        as done when the result looks right. Moves marked (already done) stay done. In notes, use the same plain words as
+        the moves ("Step right a little more", "Point the camera more down"); never "tilt". For each move write a note of at most 10 words:
         "Done" if done, otherwise exactly what is still off ("Almost, lower the phone a little more").
         Set ready to true only if the photo is now good to take. In next, say the single most useful thing to do now,
         at most 12 words (or "Take the photo." if ready).

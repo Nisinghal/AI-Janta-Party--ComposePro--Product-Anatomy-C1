@@ -56,6 +56,30 @@ fun liveCheck(move: Move, tilt: Tilt, subject: Thing?, zoom: Float): Boolean? = 
     CheckBy.Other -> null
 }
 
+/**
+ * An angle step in words nobody can misread (group feedback 2026-10-09: "tilt the phone" — which way?). The target,
+ * said as where the camera points; the live hint ([angleHint]) says which way to go from where the phone is now.
+ */
+fun angleAction(angle: ShotAngle): String = when (angle) {
+    ShotAngle.Above -> "Hold the phone flat over it, camera pointing straight down"
+    ShotAngle.Diner -> "Point the camera down at it at a slant, like when you sit at a table"
+    ShotAngle.Eye -> "Hold the phone upright, camera pointing straight at it"
+}
+
+/** Which way to point the camera from the phone's tilt right now, or that it's right. Null when the tilt is unknown. */
+fun angleHint(angle: ShotAngle?, tilt: Tilt): String? {
+    if (angle == null || tilt == Tilt.Unknown) return null
+    val d = tilt.offFlatDeg   // 0 = camera straight down, 90 = phone upright
+    val down = "Point the camera more down ↓"
+    val forward = "Point the camera more forward ↑"
+    val right = "That's it. Hold it there."
+    return when (angle) {
+        ShotAngle.Above -> if (d > 25f) down else right
+        ShotAngle.Diner -> when { d < 20f -> forward; d > 75f -> down; else -> right }
+        ShotAngle.Eye -> if (d < 60f) forward else right
+    }
+}
+
 /** The on-phone thing that best overlaps [box] (the photographer's subject), if any overlaps enough. */
 fun matchSubject(box: RectF?, things: List<Thing>): Thing? {
     if (box == null) return things.firstOrNull()
