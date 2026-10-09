@@ -153,10 +153,11 @@ fun FindingCard(looking: Boolean = false, modifier: Modifier = Modifier) {
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        CircularProgressIndicator(Modifier.size(18.dp), color = CP.OnDark, strokeWidth = 2.dp)
+        CircularProgressIndicator(Modifier.size(18.dp), color = CP.Off, strokeWidth = 2.dp)
         Column(Modifier.padding(start = 12.dp)) {
-            // First a 3-second look at what's in view, then the photographer writes the steps (user decision 2026-10-09).
-            Text(if (looking) "Looking at what's here…" else "Writing your steps…", style = CPType.BodyStrong, color = CP.OnDark)
+            // One word, in red, until the steps are ready (user request 2026-10-09: "first in red 'Detecting…', then show
+            // the steps"). The 3-second look and the photographer's answer both happen under it.
+            Text("Detecting…", style = CPType.BodyStrong, color = CP.Off)
             Text(if (looking) "Hold the phone still for 3 seconds." else "Keep holding still.", style = CPType.Caption, color = CP.OnDark.copy(alpha = 0.75f))
         }
     }
