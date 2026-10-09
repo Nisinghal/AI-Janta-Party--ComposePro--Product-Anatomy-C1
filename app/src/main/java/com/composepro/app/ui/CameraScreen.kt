@@ -670,7 +670,16 @@ fun CameraScreen(state: AppState) {
             targetSize = ringMove?.size,
             // The ring goes green exactly when its step does, so the two never disagree.
             hit = steps.getOrNull(ringStep)?.done == true,
-            phoneDir = ringMove?.let { phoneDirection(it.action) },
+            modifier = Modifier.fillMaxSize(),
+        )
+        // The step to do now, shown on the picture: a big arrow, brackets, a dashed zoom box, or "Bring it here".
+        val nowStep = steps.firstOrNull { !it.done }
+        val cue = nowStep?.let { cueFor(it, tilt, coachSubject?.let { s -> P(s.cx, s.cy) }) }
+        StepCues(
+            cue = cue,
+            target = ringMove?.let { P(it.targetX ?: 0.5f, it.targetY ?: 0.5f) }?.takeIf { steps.getOrNull(ringStep)?.done != true },
+            targetHalfHeight = ringMove?.let { targetHalfHeight(it.size, coachSubject?.box) },
+            subjectBox = coachSubject?.box,
             modifier = Modifier.fillMaxSize(),
         )
         ZoomChip(shownZoom, now - zoomShownAt < 900, Modifier.align(Alignment.Center))
@@ -713,6 +722,13 @@ fun CameraScreen(state: AppState) {
             toast?.let { GlassToast(it, Modifier.padding(bottom = CPSpace.S2)) }
             if (autoProgress > 0f && toast == null) GlassToast("Hold still…", Modifier.padding(bottom = CPSpace.S2))
             GuideChip(pick, guideVisible && !explaining && !photographerOn, ::lookAgain, Modifier.padding(bottom = CPSpace.S2))
+            // A zoom step points at the button to tap.
+            steps.firstOrNull { !it.done }?.move?.takeIf { it.check == CheckBy.Zoom }?.zoom?.let { z ->
+                val label = if (z < 1f) String.format(java.util.Locale.US, "%.1f×", z) else "${z.toInt()}×"
+                Box(Modifier.fillMaxWidth().padding(end = CPSpace.S2, bottom = 6.dp), contentAlignment = Alignment.CenterEnd) {
+                    GlassToast("Tap $label ↓")
+                }
+            }
             Row(
                 Modifier.fillMaxWidth().padding(start = CPSpace.S2, end = CPSpace.S2, bottom = CPSpace.S2),
                 horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically,

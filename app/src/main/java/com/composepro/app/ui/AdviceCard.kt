@@ -189,11 +189,8 @@ fun phoneDirection(action: String): Offset? {
  * followed (no dot), the chevrons come from the step's own words ([phoneDir]).
  */
 @Composable
-fun CoachLayer(target: P?, subject: P?, subjectBox: RectF?, targetSize: Float?, hit: Boolean, phoneDir: Offset? = null, modifier: Modifier = Modifier) {
+fun CoachLayer(target: P?, subject: P?, subjectBox: RectF?, targetSize: Float?, hit: Boolean, modifier: Modifier = Modifier) {
     val a by animateFloatAsState(if (target != null) 1f else 0f, tween(250), label = "coachAlpha")
-    val flow by rememberInfiniteTransition(label = "chevrons").animateFloat(
-        0f, 1f, infiniteRepeatable(tween(1100, easing = LinearEasing)), label = "flow",
-    )
     Canvas(modifier.alpha(a)) {
         val t = target ?: return@Canvas
         val w = size.width; val h = size.height
@@ -213,53 +210,39 @@ fun CoachLayer(target: P?, subject: P?, subjectBox: RectF?, targetSize: Float?, 
                 CornerRadius(14f * density), style = Stroke(2f * density, pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f * density, 6f * density))),
             )
         }
-        // When the step is about size too: a white box at the spot, as big as the subject should be
-        // (its height from the photographer, its width keeping the subject's own shape).
-        if (targetSize != null) {
-            val bh = targetSize * h
-            val aspect = subjectBox?.let { (it.width() * w) / (it.height() * h).coerceAtLeast(1f) } ?: 1f
-            val bw = (bh * aspect).coerceAtMost(w * 0.98f)
-            drawRoundRect(
-                CP.OnDark, Offset(to.x - bw / 2, to.y - bh / 2), Size(bw, bh), CornerRadius(16f * density),
-                style = Stroke(3f * density),
-            )
+        // The box to bring the object into (user request 2026-10-09: "a box to bring the object here"). As big as the
+        // subject should be when the step says so, else as big as it is now; a soft fill and bold corners so it reads
+        // as a place, with "Bring it here" over it (StepCues).
+        val bh = (targetHalfHeight(targetSize, subjectBox) * 2f) * h
+        val aspect = subjectBox?.let { (it.width() * w) / (it.height() * h).coerceAtLeast(1f) } ?: 1f
+        val bw = (bh * aspect).coerceIn(56f * density, w * 0.98f)
+        val tl = Offset(to.x - bw / 2, to.y - bh / 2)
+        drawRoundRect(Color.White.copy(alpha = 0.12f), tl, Size(bw, bh), CornerRadius(16f * density))
+        drawRoundRect(CP.OnDark.copy(alpha = 0.5f), tl, Size(bw, bh), CornerRadius(16f * density), style = Stroke(1.5f * density))
+        val arm = minOf(bw, bh) * 0.28f
+        for ((sx, sy) in listOf(-1f to -1f, 1f to -1f, -1f to 1f, 1f to 1f)) {
+            val c = Offset(to.x + sx * bw / 2, to.y + sy * bh / 2)
+            val path = Path().apply { moveTo(c.x - sx * arm, c.y); lineTo(c.x, c.y); lineTo(c.x, c.y - sy * arm) }
+            drawPath(path, CP.OnDark, style = Stroke(4f * density, cap = StrokeCap.Round, join = StrokeJoin.Round))
         }
         drawCircle(CP.Glass, ring, to)
         drawCircle(CP.OnDark, ring, to, style = Stroke(3f * density))
 
-        // Which way the phone should go: towards the subject (the subject then slides into the ring).
-        val dir: Offset? = subject?.let { p ->
+        // The object's dot, joined to the ring by a faint dashed line. Which way to go is the big edge arrow (StepCues).
+        subject?.let { p ->
             val from = Offset(p.x * w, p.y * h)
             val d = from - to
             val len = d.getDistance()
             drawCircle(CP.OnDark, 7f * density, from)
-            if (len < ring * 1.5f) null else {
-                // A faint dashed line joins the dot and the ring; the chevrons carry the direction.
-                drawLine(
-                    CP.OnDark.copy(alpha = 0.5f), to + d / len * (ring + 4f * density), from - d / len * (9f * density), 2f * density,
-                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f * density, 8f * density)),
-                )
-                d / len
-            }
-        } ?: phoneDir
-        if (dir != null) chevrons(to, dir, ring, flow)
+            if (len >= ring * 1.5f) drawLine(
+                CP.OnDark.copy(alpha = 0.6f), to + d / len * (ring + 4f * density), from - d / len * (9f * density), 2f * density,
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f * density, 8f * density)),
+            )
+        }
     }
 }
 
-/** Three chevrons flowing out of the ring in [dir]: "move the phone this way". */
-private fun DrawScope.chevrons(at: Offset, dir: Offset, ring: Float, flow: Float) {
-    val side = Offset(-dir.y, dir.x)
-    val s = 11f * density
-    val gap = 20f * density
-    for (k in 0 until 3) {
-        val f = (k + flow) / 3f                       // 0..1 along the run
-        val c = at + dir * (ring + 14f * density + f * gap * 3f)
-        val alpha = (1f - f) * 0.95f + 0.05f
-        val tip = c + dir * (s * 0.6f)
-        val l = c - dir * (s * 0.6f) + side * s
-        val r = c - dir * (s * 0.6f) - side * s
-        val path = Path().apply { moveTo(l.x, l.y); lineTo(tip.x, tip.y); lineTo(r.x, r.y) }
-        drawPath(path, Color.Black.copy(alpha = 0.35f * alpha), style = Stroke(7f * density, cap = StrokeCap.Round, join = StrokeJoin.Round))
-        drawPath(path, CP.OnDark.copy(alpha = alpha), style = Stroke(4f * density, cap = StrokeCap.Round, join = StrokeJoin.Round))
-    }
-}
+/** Half the height of the "bring it here" box, as a fraction of the view: the asked-for size, else the subject's own. */
+fun targetHalfHeight(targetSize: Float?, subjectBox: RectF?): Float =
+    ((targetSize ?: subjectBox?.height() ?: 0.22f) / 2f).coerceIn(0.06f, 0.35f)
+
