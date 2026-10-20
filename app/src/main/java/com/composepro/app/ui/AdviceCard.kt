@@ -119,11 +119,10 @@ fun CoachCard(
                             s.move.check == CheckBy.Frame && s.move.size != null -> "Move until the outline fills the white box."
                             s.move.check == CheckBy.Frame -> "Move the phone until the dot is inside the circle."
                             s.move.check == CheckBy.Angle && s.live && angleHint != null -> angleHint
-                            s.move.check == CheckBy.Zoom -> "Tap ${s.move.zoom?.let { if (it < 1f) String.format(java.util.Locale.US, "%.1f", it) else it.toInt().toString() }}× at the bottom-right of the camera view."
-                            s.note.isNotBlank() && !s.note.equals("Done", ignoreCase = true) -> s.note
-                            else -> s.move.why
+                            s.move.check == CheckBy.Zoom -> "The ${s.move.zoom?.let { if (it < 1f) String.format(java.util.Locale.US, "%.1f", it) else it.toInt().toString() }}× button is at the bottom right."
+                            else -> null
                         }
-                        Text(hint, style = CPType.Caption, color = CP.OnDark.copy(alpha = 0.8f), maxLines = 2)
+                        if (hint != null) Text(hint, style = CPType.Caption, color = CP.OnDark.copy(alpha = 0.8f), maxLines = 2)
                     }
                 }
             }

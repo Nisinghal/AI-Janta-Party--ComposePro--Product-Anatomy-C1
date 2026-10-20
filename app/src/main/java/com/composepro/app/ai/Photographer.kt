@@ -188,21 +188,18 @@ object Photographer {
         - Never ask for the subject to fill more than 60% of the picture's height; keep some space around it.
         - Keep the phone at least about 25 cm from small things, and watch for the phone's own shadow falling on them.
 
-        Moves must be plain physical actions, and must use ONLY these words (the person's group found "tilt the phone
-        up/down" confusing: nobody knew which way that was). Directions are always as the person sees them on the screen.
-        Every move says what to do WITH THE PHONE and, where it helps, WHERE TO, by something they can see in the
-        picture (user test 2026-10-09: "crouch down a little" — nobody knew how or what it meant). Never "crouch",
-        "kneel", "squat", "get down" or "lean".
-        - Sideways: "Move the phone a little left" / "Move the phone a little right" (for a scene: "Step left" / "Step right").
-        - Distance: "Move the phone closer to the cup" / "Move the phone back from the cup" (for a scene: "Step closer" / "Step back").
-        - Height: "Hold the phone lower, level with the statue's chest" / "Hold the phone higher, above the plate".
-        - Angle (phone test 2026-10-20: "point the camera more forward" was confusing): say where to look from, e.g.
-          "Look down at it from above", "Look at it at a slant, like sitting at the table", "Look at it straight from the
-          side, at its height". Never "tilt", "forward", "angle the phone" or "up/down" on its own.
-        - Zoom: "Tap 2×" (or another zoom button this phone has).
-        - Things on the table: "Move the cup left/right/closer to you/further back", "Take the [thing] out of the picture".
-        - Light: "Turn so the window is beside you", "Turn on a light".
-        You may add a few words of what it's for ("Step right so the tree is on the left line").
+        Every move is chosen from a fixed menu (set "do"); the app shows its own short words for it, so keep the menu
+        meaning exactly (user tests 2026-10-09 and 2026-10-20: free wording kept confusing people):
+        - "look_from_above": hold the phone flat over it, camera straight down.       (angle "above")
+        - "look_at_slant": look down at it at about 45°, like sitting at the table.   (angle "diner")
+        - "look_straight_on": phone upright, at its height, looking straight at it.   (angle "eye")
+        - "move_closer" / "move_back": the phone nearer to it / further from it.
+        - "move_left" / "move_right": the phone a little to that side (as the person sees the screen).
+        - "phone_higher" / "phone_lower": the phone held higher / lower, same direction.
+        - "zoom_in": tap a zoom button (set zoom, e.g. 2). "zoom_out": back to 1×.
+        - "face_the_light": turn so the light falls on the subject.
+        - "remove_thing": take one thing out of the picture; set thing to it in 1 to 3 words ("the napkin").
+        - "other": only if nothing above fits; then action, at most 8 plain words.
         Never ask them to line real things up with a drawn line ("align the street with the diagonal", "lead from corner
         to corner"); people can't map a 3D scene onto a 2D line.
         All moves must agree with each other: never include something in one move and remove it in another, never send
@@ -218,9 +215,8 @@ object Photographer {
            cut off at an edge, step back.
         3. Position: one "frame" move, only if the subject is not already near the frame's spot.
         4. Only then light or tidying, and only if something is clearly wrong.
-        Give 1 to 3 moves in that order; each action at most 12 words, each reason at most 15 words. Say each step the way
-        a photographer standing next to them would: short, calm and specific. One idea per move, so each can be checked
-        on its own. The phone looked at the scene for 3 seconds first; use its list of what it saw to pick the subject.
+        Give 1 to 3 moves in that order, as few as will do; each reason at most 12 words. One idea per move, so each can be
+        checked on its own. The phone looked at the scene for 3 seconds first; use its list of what it saw to pick the subject.
 
         Then choose ONE composition frame. Follow how the person is already framing: pick the frame that needs the
         smallest change, and the simplest one that works. Each frame has fixed spots, as (x, y) with 0 = left/top:
@@ -236,8 +232,8 @@ object Photographer {
         - "spiral": hero at (0.62, 0.40), others along the curve. A busy spread.
         A scene or a living subject always uses "thirds" or "centre".
         Set frame, and frame_why in at most 10 plain words.
-        A "frame" move puts target_x/target_y on the frame's spot nearest to where the subject already is, and says it
-        as a phone action ("Step right so the tree sits on the left grid line"). At most ONE "frame" move. A big subject
+        A "frame" move (do move_left/move_right, or move_closer/move_back when it's about size) puts target_x/target_y on
+        the frame's spot nearest to where the subject already is. At most ONE "frame" move. A big subject
         that fills most of the picture moves sideways onto a third LINE, not its middle onto a cross point.
 
         For each move say how it can be checked:
@@ -275,7 +271,9 @@ object Photographer {
           "subject_box":{"type":"ARRAY","items":{"type":"INTEGER"},"description":"Where the subject is now: [ymin, xmin, ymax, xmax], 0 to 1000"},
           "moves":{"type":"ARRAY","description":"2 or 3 moves, most important first; empty if ready","items":{
             "type":"OBJECT","properties":{
-              "action":{"type":"STRING","description":"The move as a short instruction, max 12 words"},
+              "do":{"type":"STRING","enum":["look_from_above","look_at_slant","look_straight_on","move_closer","move_back","move_left","move_right","phone_higher","phone_lower","zoom_in","zoom_out","face_the_light","remove_thing","other"]},
+              "thing":{"type":"STRING","description":"Only for remove_thing: what to take out, 1 to 3 words"},
+              "action":{"type":"STRING","description":"Only for other: the move, max 8 plain words"},
               "why":{"type":"STRING","description":"Why it makes the photo better, max 15 words"},
               "check":{"type":"STRING","enum":["angle","zoom","frame","other"]},
               "zoom":{"type":"NUMBER","description":"Only when check is zoom: the zoom button to tap, e.g. 2"},
@@ -283,7 +281,7 @@ object Photographer {
               "target_x":{"type":"NUMBER","description":"Only when check is frame: where the subject's centre should be, 0 left to 1 right"},
               "target_y":{"type":"NUMBER","description":"Only when check is frame: 0 top to 1 bottom"},
               "size":{"type":"NUMBER","description":"Only when check is frame: share of the picture's height the subject should fill"}},
-            "required":["action","why","check"]}}},
+            "required":["do","why","check"]}}},
          "required":["seen","subject","ready","kind","frame","moves"]}
         """,
     )
@@ -474,9 +472,22 @@ object Photographer {
             ready = o.optBoolean("ready"),
             moves = (0 until moves.length()).map { i ->
                 val m = moves.getJSONObject(i)
-                val check = when (m.optString("check")) { "angle" -> CheckBy.Angle; "frame" -> CheckBy.Frame; "zoom" -> CheckBy.Zoom; else -> CheckBy.Other }
-                val zoomTo = if (m.has("zoom")) m.optDouble("zoom").toFloat().takeIf { it in 0.4f..10f } else null
-                val angle = when (m.optString("angle")) { "above" -> ShotAngle.Above; "diner" -> ShotAngle.Diner; "eye" -> ShotAngle.Eye; else -> null }
+                val doIt = m.optString("do")
+                val askedCheck = when (m.optString("check")) { "angle" -> CheckBy.Angle; "frame" -> CheckBy.Frame; "zoom" -> CheckBy.Zoom; else -> CheckBy.Other }
+                val askedZoom = if (m.has("zoom")) m.optDouble("zoom").toFloat().takeIf { it in 0.4f..10f } else null
+                // The menu choice decides how it's checked (the model's own "check" only for move_* steps).
+                val angle = when (doIt) {
+                    "look_from_above" -> ShotAngle.Above; "look_at_slant" -> ShotAngle.Diner; "look_straight_on" -> ShotAngle.Eye
+                    else -> when (m.optString("angle")) { "above" -> ShotAngle.Above; "diner" -> ShotAngle.Diner; "eye" -> ShotAngle.Eye; else -> null }
+                }
+                val zoomTo = when (doIt) { "zoom_in" -> askedZoom ?: 2f; "zoom_out" -> 1f; else -> askedZoom }
+                val check = when (doIt) {
+                    "look_from_above", "look_at_slant", "look_straight_on" -> CheckBy.Angle
+                    "zoom_in", "zoom_out" -> CheckBy.Zoom
+                    "move_left", "move_right", "move_closer", "move_back" -> if (askedCheck == CheckBy.Frame) CheckBy.Frame else CheckBy.Other
+                    "phone_higher", "phone_lower", "face_the_light", "remove_thing" -> CheckBy.Other
+                    else -> askedCheck
+                }
                 fun frac(key: String) = if (m.has(key)) m.optDouble(key).toFloat().takeIf { it in 0f..1f } else null
                 val (sx, sy) = snap(frac("target_x"), frac("target_y"))
                 val (tx, ty) = thirdsFor(sx, sy)
@@ -499,9 +510,11 @@ object Photographer {
                 // there's also an angle step, and only when it's clearly off the spot.
                 val small = box != null && box.height() < 0.55f && box.width() < 0.7f
                 val hasAngleStep = (0 until moves.length()).any { moves.getJSONObject(it).optString("check") == "angle" }
-                val action = if (finalCheck == CheckBy.Frame && small && box != null && tx != null && ty != null)
-                    frameAction(box.centerX() - tx, box.centerY() - ty, kind, o.optString("subject"), allowVertical = !hasAngleStep) ?: m.optString("action")
-                else m.optString("action")
+                val words = menuWords(doIt, m.optString("thing"), zoomTo)
+                    ?: m.optString("action").split(Regex("\\s+")).take(8).joinToString(" ")
+                val action = if (finalCheck == CheckBy.Frame && small && box != null && tx != null && ty != null && (doIt == "move_left" || doIt == "move_right" || doIt == "other" || doIt.isBlank()))
+                    frameAction(box.centerX() - tx, box.centerY() - ty, kind, allowVertical = !hasAngleStep) ?: words
+                else words
                 Move(
                     action = plainWords(action),
                     why = m.optString("why"),
@@ -539,12 +552,30 @@ object Photographer {
     }
 
     /** "Move the phone a little left so the mug sits in the circle", from how far the subject is from the circle. */
-    private fun frameAction(dx: Float, dy: Float, kind: ShotKind, subject: String, allowVertical: Boolean = true): String? {
+    /** "Move a little left", from where the subject is and where the circle is, so the words and the circle agree. */
+    private fun frameAction(dx: Float, dy: Float, kind: ShotKind, allowVertical: Boolean = true): String? {
         val ddy = if (allowVertical) dy else 0f
         if (kotlin.math.abs(dx) < 0.08f && kotlin.math.abs(ddy) < 0.08f) return null
-        val name = subject.trim().lowercase().removePrefix("the ").ifBlank { "" }
-        val what = if (name.isBlank()) "it" else "the $name"
-        return "${moveWords(dx, ddy, kind)} so $what sits in the circle"
+        return moveWords(dx, ddy, kind)
+    }
+
+    /** The app's own short words for each menu choice (2 to 5 words; user test 2026-10-20: "give simple instructions"). */
+    private fun menuWords(doIt: String, thing: String, zoom: Float?): String? = when (doIt) {
+        "look_from_above" -> "Look down from above"
+        "look_at_slant" -> "Look at it at a slant"
+        "look_straight_on" -> "Look at it straight on"
+        "move_closer" -> "Move closer"
+        "move_back" -> "Move back"
+        "move_left" -> "Move a little left"
+        "move_right" -> "Move a little right"
+        "phone_higher" -> "Hold the phone higher"
+        "phone_lower" -> "Hold the phone lower"
+        "zoom_in" -> "Tap ${zoom?.let { if (it < 1f) String.format(java.util.Locale.US, "%.1f", it) else it.toInt().toString() } ?: "2"}×"
+        "zoom_out" -> "Tap 1×"
+        "face_the_light" -> "Turn to face the light"
+        "remove_thing" -> thing.trim().split(Regex("\\s+")).take(3).joinToString(" ").lowercase().removePrefix("the ").ifBlank { null }
+            ?.let { "Remove the $it" } ?: "Clear the clutter"
+        else -> null
     }
 
     private fun parseReview(text: String, count: Int): Review? = try {

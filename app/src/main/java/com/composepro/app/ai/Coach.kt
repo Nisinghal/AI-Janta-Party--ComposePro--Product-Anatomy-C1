@@ -61,9 +61,9 @@ fun liveCheck(move: Move, tilt: Tilt, subject: Thing?, zoom: Float): Boolean? = 
  * said as where the camera points; the live hint ([angleHint]) says which way to go from where the phone is now.
  */
 fun angleAction(angle: ShotAngle): String = when (angle) {
-    ShotAngle.Above -> "Hold the phone flat over it and look straight down"
-    ShotAngle.Diner -> "Look at it at a slant, like when you sit at the table"
-    ShotAngle.Eye -> "Hold the phone upright and look at it straight from the side"
+    ShotAngle.Above -> "Look down from above"
+    ShotAngle.Diner -> "Look at it at a slant"
+    ShotAngle.Eye -> "Look at it straight on"
 }
 
 /** Which way to point the camera from the phone's tilt right now, or that it's right. Null when the tilt is unknown. */
@@ -71,8 +71,8 @@ fun angleHint(angle: ShotAngle?, tilt: Tilt): String? {
     if (angle == null || tilt == Tilt.Unknown) return null
     val d = tilt.offFlatDeg   // 0 = camera straight down, 90 = phone upright
     // What to do with the phone, said plainly (phone test 2026-10-20: "more forward" — which way is that?).
-    val down = "Look down at it more: tip the top of the phone away from you ↓"
-    val forward = "Look at it more from the side: tip the top of the phone towards you ↑"
+    val down = "Tip the top of the phone away from you ↓"
+    val forward = "Tip the top of the phone towards you ↑"
     val right = "That's it. Hold it there."
     return when (angle) {
         ShotAngle.Above -> if (d > 25f) down else right
@@ -87,20 +87,20 @@ fun angleHint(angle: ShotAngle?, tilt: Tilt): String? {
  */
 fun moveWords(dx: Float, dy: Float, kind: ShotKind): String = if (abs(dx) >= abs(dy)) {
     val side = if (dx > 0) "right" else "left"
-    if (kind == ShotKind.TableTop) "Move the phone a little $side" else "Step $side"
-} else if (dy < 0) "Point the camera a little higher" else "Point the camera a little lower"
+    if (kind == ShotKind.TableTop) "Move a little $side" else "Step $side"
+} else if (dy < 0) "Aim a little higher" else "Aim a little lower"
 
 /** The live line under a position step, from the dot and the circle right now, so it always matches what's drawn. */
 fun frameHint(subject: Thing, move: Move, kind: ShotKind): String? {
     val tx = move.targetX ?: return null
     val ty = move.targetY ?: return null
     val dx = subject.cx - tx; val dy = subject.cy - ty
-    if (hypot(dx, dy) >= SPOT) return "${moveWords(dx, dy, kind)} until the dot is in the circle."
+    if (hypot(dx, dy) >= SPOT) return "${moveWords(dx, dy, kind)}, until the dot is in the circle."
     val size = move.size ?: return "That's it. Hold it there."
     val h = subject.box.height()
     return when {
-        h < size * (1 - SIZE_SLACK) -> "Now step a little closer, until it fills the white box."
-        h > size * (1 + SIZE_SLACK) -> "Now step back a little, until it fits the white box."
+        h < size * (1 - SIZE_SLACK) -> "Move closer, until it fills the white box."
+        h > size * (1 + SIZE_SLACK) -> "Move back, until it fits the white box."
         else -> "That's it. Hold it there."
     }
 }
