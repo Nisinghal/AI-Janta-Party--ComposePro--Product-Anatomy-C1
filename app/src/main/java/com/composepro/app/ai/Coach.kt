@@ -61,17 +61,18 @@ fun liveCheck(move: Move, tilt: Tilt, subject: Thing?, zoom: Float): Boolean? = 
  * said as where the camera points; the live hint ([angleHint]) says which way to go from where the phone is now.
  */
 fun angleAction(angle: ShotAngle): String = when (angle) {
-    ShotAngle.Above -> "Hold the phone flat over it, camera pointing straight down"
-    ShotAngle.Diner -> "Point the camera down at it at a slant, like when you sit at a table"
-    ShotAngle.Eye -> "Hold the phone upright, camera pointing straight at it"
+    ShotAngle.Above -> "Hold the phone flat over it and look straight down"
+    ShotAngle.Diner -> "Look at it at a slant, like when you sit at the table"
+    ShotAngle.Eye -> "Hold the phone upright and look at it straight from the side"
 }
 
 /** Which way to point the camera from the phone's tilt right now, or that it's right. Null when the tilt is unknown. */
 fun angleHint(angle: ShotAngle?, tilt: Tilt): String? {
     if (angle == null || tilt == Tilt.Unknown) return null
     val d = tilt.offFlatDeg   // 0 = camera straight down, 90 = phone upright
-    val down = "Point the camera more down ↓"
-    val forward = "Point the camera more forward ↑"
+    // What to do with the phone, said plainly (phone test 2026-10-20: "more forward" — which way is that?).
+    val down = "Look down at it more: tip the top of the phone away from you ↓"
+    val forward = "Look at it more from the side: tip the top of the phone towards you ↑"
     val right = "That's it. Hold it there."
     return when (angle) {
         ShotAngle.Above -> if (d > 25f) down else right

@@ -349,10 +349,15 @@ fun CameraScreen(state: AppState) {
     // When the phone has been held still (frame-to-frame change small) — following a step means moving.
     var lastGray by remember { mutableStateOf<Gray?>(null) }
     var steadySince by remember { mutableLongStateOf(0L) }
+    // Looser "held still" for Auto shot: a hand never holds a phone perfectly still (user test 2026-10-20: "auto shot is
+    // not working"; the strict test above kept resetting with normal hand shake).
+    var stillSince by remember { mutableLongStateOf(0L) }
     LaunchedEffect(frame) {
         val g = frame?.gray ?: return@LaunchedEffect
         val t = SystemClock.elapsedRealtime()
-        if (differs(g, lastGray) < 10f) { if (steadySince == 0L) steadySince = t } else steadySince = 0L
+        val change = differs(g, lastGray)
+        if (change < 10f) { if (steadySince == 0L) steadySince = t } else steadySince = 0L
+        if (change < 18f) { if (stillSince == 0L) stillSince = t } else stillSince = 0L
         lastGray = g
     }
 
@@ -662,14 +667,26 @@ fun CameraScreen(state: AppState) {
     }
     val shotReady = when {
         unavailable || taking || dark || (frame?.meanY ?: 0f) < com.composepro.app.camera.Thresholds.TOO_DARK -> false
-        coach != null -> allDone
+        // Steps the phone can check must be done; steps only the photographer can judge ("move the phone back") don't
+        // hold it up, since they often never tick by themselves. With no checkable step at all, all steps must be done.
+        coach != null -> allDone || (steps.any { it.live } && steps.filter { it.live }.all { it.done })
         photographerOn -> false            // the steps are still on their way
         !state.tipsOn -> true
         else -> shown.edge == EdgeState.Right
     }
-    val heldForShot = steadySince != 0L && now - steadySince >= 500
+    val heldForShot = stillSince != 0L && now - stillSince >= 500
     val armed = state.autoShot && shotReady && heldForShot && now - openedAt > 2_000
     var countFrom by remember { mutableLongStateOf(0L) }
+    // Why Auto shot is or isn't firing, in the phone's log (only when the reason changes).
+    val autoWhy = when {
+        !state.autoShot -> "off"
+        coach == null -> "no steps yet"
+        !shotReady -> "waiting for steps: ${steps.count { it.done }}/${steps.size} done (${steps.count { it.live && !it.done }} checkable open)"
+        !heldForShot -> "waiting for the phone to be still"
+        now - openedAt <= 2_000 -> "camera just opened"
+        else -> "counting down"
+    }
+    LaunchedEffect(autoWhy) { android.util.Log.i("ComposePro", "Auto shot: $autoWhy") }
     LaunchedEffect(armed) {
         if (!armed) { countFrom = 0L; return@LaunchedEffect }
         countFrom = SystemClock.elapsedRealtime()

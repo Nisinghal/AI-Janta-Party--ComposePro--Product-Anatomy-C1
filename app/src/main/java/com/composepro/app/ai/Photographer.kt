@@ -101,7 +101,7 @@ object Photographer {
      * "the tester APK isn't working the same as the original").
      */
     private val PREFERRED = listOf("gemini-3.1-flash-lite-preview", "gemini-3.5-flash-lite", "gemini-flash-lite-latest")
-    private const val PREFER_MS = 8_000L
+    private const val PREFER_MS = 5_000L
     @Volatile private var warmed = false
 
     /**
@@ -194,8 +194,9 @@ object Photographer {
         - Sideways: "Move the phone a little left" / "Move the phone a little right" (for a scene: "Step left" / "Step right").
         - Distance: "Move the phone closer to the cup" / "Move the phone back from the cup" (for a scene: "Step closer" / "Step back").
         - Height: "Hold the phone lower, level with the statue's chest" / "Hold the phone higher, above the plate".
-        - Angle: "Point the camera more down at it" / "Point the camera more forward". Never "tilt", "angle the phone"
-          or "up/down" on its own.
+        - Angle (phone test 2026-10-20: "point the camera more forward" was confusing): say where to look from, e.g.
+          "Look down at it from above", "Look at it at a slant, like sitting at the table", "Look at it straight from the
+          side, at its height". Never "tilt", "forward", "angle the phone" or "up/down" on its own.
         - Zoom: "Tap 2×" (or another zoom button this phone has).
         - Things on the table: "Move the cup left/right/closer to you/further back", "Take the [thing] out of the picture".
         - Light: "Turn so the window is beside you", "Turn on a light".
@@ -411,7 +412,7 @@ object Photographer {
         val conn = (URL(endpoint(model)).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 15_000
-            readTimeout = 45_000
+            readTimeout = 20_000
             doOutput = true
             setRequestProperty("Content-Type", "application/json")
             setRequestProperty("x-goog-api-key", BuildConfig.GEMINI_API_KEY)
@@ -481,14 +482,22 @@ object Photographer {
                     check == CheckBy.Angle && angle == null -> CheckBy.Other
                     check == CheckBy.Zoom && zoomTo == null -> CheckBy.Other
                     check == CheckBy.Frame && (tx == null || ty == null) -> CheckBy.Other
+                    // Fills most of the picture (a laptop up close, a scooter): no circle to aim for, the step is about distance.
+                    check == CheckBy.Frame && box != null && box.width() > 0.85f && box.height() > 0.85f -> CheckBy.Other
                     // Only one position move: a second one would pull the subject to another spot.
                     check == CheckBy.Frame && frameMoves++ > 0 -> CheckBy.Other
                     else -> check
                 }
                 // User test 2026-10-09: the words said "step right" while the circle needed the phone to go left. The
                 // position step is now worded from where the subject is and where the circle is, so they always agree.
-                val action = if (finalCheck == CheckBy.Frame && box != null && tx != null && ty != null)
-                    frameAction(box.centerX() - tx, box.centerY() - ty, kind, o.optString("subject")) ?: m.optString("action")
+                // Phone test 2026-10-20 (a laptop keyboard filling the picture): a good "Move the phone back from the
+                // laptop" was rewritten into "Point the camera a little lower…", which fought step 1 ("…more forward").
+                // So the words are only rewritten for a subject small enough to move onto a spot, never up/down when
+                // there's also an angle step, and only when it's clearly off the spot.
+                val small = box != null && box.height() < 0.55f && box.width() < 0.7f
+                val hasAngleStep = (0 until moves.length()).any { moves.getJSONObject(it).optString("check") == "angle" }
+                val action = if (finalCheck == CheckBy.Frame && small && box != null && tx != null && ty != null)
+                    frameAction(box.centerX() - tx, box.centerY() - ty, kind, o.optString("subject"), allowVertical = !hasAngleStep) ?: m.optString("action")
                 else m.optString("action")
                 Move(
                     action = plainWords(action),
@@ -516,8 +525,10 @@ object Photographer {
         var t = text
         val swaps = listOf(
             """(?i)\b(?:crouch|kneel|squat)(?: down)?(?: a little| a bit| slightly| lower)?(?: more)?\b|\bget down(?: a little| a bit| lower)?\b""" to "hold the phone lower",
-            """(?i)\btilt (the )?(phone|camera) (down|downward|downwards)\b""" to "point the camera more down",
-            """(?i)\btilt (the )?(phone|camera) (up|upward|upwards|back)\b""" to "point the camera more forward",
+            """(?i)\btilt (the )?(phone|camera) (down|downward|downwards)\b""" to "look down at it more",
+            """(?i)\btilt (the )?(phone|camera) (up|upward|upwards|back)\b""" to "look at it more from the side",
+            """(?i)\bpoint the camera more forward\b""" to "look at it more from the side",
+            """(?i)\bpoint the camera more down( at it)?\b""" to "look down at it more",
             """(?i)\blean (in|forward)\b""" to "move the phone closer",
         )
         for ((re, with) in swaps) t = Regex(re).replace(t, with)
@@ -525,10 +536,12 @@ object Photographer {
     }
 
     /** "Move the phone a little left so the mug sits in the circle", from how far the subject is from the circle. */
-    private fun frameAction(dx: Float, dy: Float, kind: ShotKind, subject: String): String? {
-        if (kotlin.math.abs(dx) < 0.05f && kotlin.math.abs(dy) < 0.05f) return null
-        val what = subject.trim().ifBlank { "it" }.let { if (it == "it" || it.startsWith("the ", ignoreCase = true)) it else "the $it" }
-        return "${moveWords(dx, dy, kind)} so $what sits in the circle"
+    private fun frameAction(dx: Float, dy: Float, kind: ShotKind, subject: String, allowVertical: Boolean = true): String? {
+        val ddy = if (allowVertical) dy else 0f
+        if (kotlin.math.abs(dx) < 0.08f && kotlin.math.abs(ddy) < 0.08f) return null
+        val name = subject.trim().lowercase().removePrefix("the ").ifBlank { "" }
+        val what = if (name.isBlank()) "it" else "the $name"
+        return "${moveWords(dx, ddy, kind)} so $what sits in the circle"
     }
 
     private fun parseReview(text: String, count: Int): Review? = try {
