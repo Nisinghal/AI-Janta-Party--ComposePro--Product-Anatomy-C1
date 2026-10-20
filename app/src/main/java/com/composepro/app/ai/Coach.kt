@@ -110,7 +110,8 @@ fun matchSubject(box: RectF?, things: List<Thing>): Thing? {
     return things.maxByOrNull { overlap(it.box, box) }?.takeIf { overlap(it.box, box) > 0.2f }
 }
 
-private fun overlap(a: RectF, b: RectF): Float {
+/** Overlap of two boxes (intersection over union), 0..1. */
+fun overlap(a: RectF, b: RectF): Float {
     val iw = min(a.right, b.right) - max(a.left, b.left)
     val ih = min(a.bottom, b.bottom) - max(a.top, b.top)
     if (iw <= 0 || ih <= 0) return 0f

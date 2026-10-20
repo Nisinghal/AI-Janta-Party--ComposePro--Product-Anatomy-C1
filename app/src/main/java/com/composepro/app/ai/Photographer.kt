@@ -302,10 +302,10 @@ object Photographer {
     val hasKey get() = BuildConfig.GEMINI_API_KEY.isNotBlank()
 
     /** Blocking: call from a background thread. [context] is what the phone knows (angle, zoom, what its detector saw). */
-    fun ask(frame: Bitmap, context: String): Reply<Advice> =
+    fun ask(frame: Bitmap, context: String, phoneBox: RectF? = null): Reply<Advice> =
         when (val r = generate(ASK_SYSTEM, ASK_SCHEMA, frame, context)) {
             is Reply.Failed -> r
-            is Reply.Ok -> parseAdvice(r.value)?.let { Reply.Ok(it) } ?: Reply.Failed("The photographer couldn't answer this time. Try again.")
+            is Reply.Ok -> parseAdvice(r.value, phoneBox)?.let { Reply.Ok(it) } ?: Reply.Failed("The photographer couldn't answer this time. Try again.")
         }
 
     /** Blocking: sends the new frame and the moves given earlier, and gets back which are done. */
@@ -431,13 +431,15 @@ object Photographer {
         null
     }
 
-    private fun parseAdvice(text: String): Advice? = try {
+    private fun parseAdvice(text: String, phoneBox: RectF? = null): Advice? = try {
         val o = JSONObject(text)
         val moves = o.optJSONArray("moves") ?: JSONArray()
-        val box = o.optJSONArray("subject_box")?.takeIf { it.length() == 4 }?.let { b ->
+        val geminiBox = o.optJSONArray("subject_box")?.takeIf { it.length() == 4 }?.let { b ->
             // Gemini's own box order: [ymin, xmin, ymax, xmax] on a 0–1000 scale.
             RectF(b.getDouble(1).toFloat() / 1000f, b.getDouble(0).toFloat() / 1000f, b.getDouble(3).toFloat() / 1000f, b.getDouble(2).toFloat() / 1000f)
         }
+        // The phone's own outline of the subject is tighter than the model's guess, so it wins when there is one.
+        val box = phoneBox ?: geminiBox
         val kind = when (o.optString("kind")) { "scene" -> ShotKind.Scene; "living" -> ShotKind.Living; else -> ShotKind.TableTop }
         val asked = when (o.optString("frame")) {
             "thirds" -> Guide.Thirds; "centre" -> Guide.Centre; "front_back" -> Guide.FrontBack; "diagonal" -> Guide.Diagonal

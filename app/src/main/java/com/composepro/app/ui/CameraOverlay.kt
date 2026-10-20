@@ -465,3 +465,24 @@ fun LevelGuide(tilt: com.composepro.app.camera.Tilt, now: Long, modifier: Modifi
         }
     }
 }
+
+/**
+ * Corners round the main subject the camera found (PLAN.md Phase 1), so it's clear what the steps are about.
+ * Tap another thing to make that the subject.
+ */
+@Composable
+fun SubjectOutline(box: android.graphics.RectF?, visible: Boolean, modifier: Modifier = Modifier) {
+    val a by animateFloatAsState(if (visible && box != null) 1f else 0f, tween(250), label = "outline")
+    if (a == 0f || box == null) return
+    Canvas(modifier.alpha(a)) {
+        val l = box.left * size.width; val t = box.top * size.height
+        val r = box.right * size.width; val b = box.bottom * size.height
+        val arm = minOf(r - l, b - t) * 0.22f
+        val sw = 3.dp.toPx()
+        for ((cx, cy, sx, sy) in listOf(floatArrayOf(l, t, 1f, 1f), floatArrayOf(r, t, -1f, 1f), floatArrayOf(l, b, 1f, -1f), floatArrayOf(r, b, -1f, -1f))) {
+            val p = Path().apply { moveTo(cx + sx * arm, cy); lineTo(cx, cy); lineTo(cx, cy + sy * arm) }
+            drawPath(p, Color.Black.copy(alpha = 0.3f), style = Stroke(sw + 3.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round))
+            drawPath(p, Color.White, style = Stroke(sw, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round))
+        }
+    }
+}

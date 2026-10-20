@@ -32,6 +32,8 @@ data class FrameResult(
     val warmth: Float,
     /** Small upright greyscale copy of the frame, for following a subject by its look (Tracker). */
     val gray: Gray? = null,
+    /** The main subject(s) in view, whatever they are (SubjectFinder), as fractions of the view, biggest first. */
+    val subjects: List<RectF> = emptyList(),
 )
 
 /**
@@ -64,6 +66,10 @@ class FrameAnalyzer(private val context: Context, private val onResult: (FrameRe
             val alreadyCropped = full.width != proxy.width || full.height != proxy.height
             val image = upright(full, proxy.imageInfo.rotationDegrees)
             val view = if (alreadyCropped) RectF(0f, 0f, 1f, 1f) else visibleArea(crop, proxy.width, proxy.height, proxy.imageInfo.rotationDegrees)
+            // The subject finder looks at exactly what's on screen.
+            val vx = (view.left * image.width).toInt(); val vy = (view.top * image.height).toInt()
+            val vw = (view.width() * image.width).toInt().coerceIn(1, image.width - vx); val vh = (view.height() * image.height).toInt().coerceIn(1, image.height - vy)
+            subjectFinder.offer(if (vx == 0 && vy == 0 && vw == image.width && vh == image.height) image else Bitmap.createBitmap(image, vx, vy, vw, vh))
             val things = steady(toVisible(detect(image), view), now)
             if (view != lastView) {
                 lastView = view
@@ -71,7 +77,7 @@ class FrameAnalyzer(private val context: Context, private val onResult: (FrameRe
             }
             val seen = things.map { "${it.category}#${it.id}" }
             if (seen != lastSeen) { lastSeen = seen; Log.d(TAG, "things=${things.size} ${things.map { "${it.category}#${it.id}${it.box.toShortString()}" }}") }
-            val r = FrameResult(things, light.meanY, light.centerY, light.clipFrac, light.warmth, gray)
+            val r = FrameResult(things, light.meanY, light.centerY, light.clipFrac, light.warmth, gray, subjectFinder.subjects)
             mainThread.execute { onResult(r) }
         } catch (e: Exception) {
             Log.e(TAG, "analysis failed", e)
@@ -80,7 +86,9 @@ class FrameAnalyzer(private val context: Context, private val onResult: (FrameRe
         }
     }
 
-    fun close() { detector?.close(); detector = null }
+    private val subjectFinder = SubjectFinder(context)
+
+    fun close() { detector?.close(); detector = null; subjectFinder.close() }
 
     private fun detectorOrNull(): ObjectDetector? = detector ?: try {
         ObjectDetector.createFromOptions(

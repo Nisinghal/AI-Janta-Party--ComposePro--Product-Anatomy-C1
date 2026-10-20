@@ -79,6 +79,8 @@ dependencies {
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
     implementation(libs.mediapipe.tasks.vision)
+    // Finds the main subject(s) in view whatever they are, with no list of object types (PLAN.md Phase 1, 2026-10-20).
+    implementation(libs.mlkit.subject.segmentation)
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)

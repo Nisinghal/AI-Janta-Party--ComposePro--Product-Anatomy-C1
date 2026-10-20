@@ -276,6 +276,11 @@ fun CameraScreen(state: AppState) {
         if (key == raw.key && now - pendingSince >= SETTLE_MS) { shown = raw; pendingKey = null }
     }
     val things = frame?.things.orEmpty()
+    // The main subject, whatever it is (PLAN.md Phase 1): the biggest thing in view, with any others nearly as big
+    // (a plate and its glass) as one. A tap on another thing makes that the subject instead (a correction, not a must).
+    val subjects = frame?.subjects.orEmpty()
+    var tappedAt by remember { mutableStateOf<Offset?>(null) }
+    val mainBox = tappedAt?.let { com.composepro.app.camera.SubjectFinder.at(subjects, it.x, it.y) } ?: com.composepro.app.camera.SubjectFinder.main(subjects)
     val points = things.map { P(it.cx, it.cy) }
     val guideAlignment = if (points.isEmpty() || pick == null) null else alignment(guide, points, slots)
     val dark = shown.kind == TipKind.Note
@@ -360,7 +365,11 @@ fun CameraScreen(state: AppState) {
         }
         val stops = zoomStops.joinToString(", ") { if (it < 1f) String.format(java.util.Locale.US, "%.1f×", it) else "${it.toInt()}×" }
         return "How the phone is held: $held. Zoom now: ${String.format(java.util.Locale.US, "%.1f", shownZoom)}×. Zoom buttons on this phone: $stops. " +
-            "The phone's own detector thinks it sees: ${if (things.isEmpty()) "nothing it recognises" else describe(things)} (it can be wrong)."
+            "The phone's own detector thinks it sees: ${if (things.isEmpty()) "nothing it recognises" else describe(things)} (it can be wrong)." +
+            (mainBox?.let { b ->
+                " The phone outlined the main subject at [ymin, xmin, ymax, xmax] = [${(b.top * 1000).toInt()}, ${(b.left * 1000).toInt()}, ${(b.bottom * 1000).toInt()}, ${(b.right * 1000).toInt()}] " +
+                    "(0 to 1000). That is the subject: name it, build every step around it, and give that box as subject_box."
+            } ?: "")
     }
 
     var lastReqAt by remember { mutableLongStateOf(0L) }
@@ -371,12 +380,13 @@ fun CameraScreen(state: AppState) {
         val seenNow = things
         val tiltNow = tilt
         val grayAtAsk = frame?.gray
+        val phoneBox = mainBox?.let { RectF(it) }
         val ctx = phoneContext() + " What should this person do to take a better photo of this?"
         busy = true
         askError = null
         lastReqAt = SystemClock.elapsedRealtime()
         scope.launch {
-            val r = withContext(Dispatchers.IO) { Photographer.ask(bmp, ctx) }
+            val r = withContext(Dispatchers.IO) { Photographer.ask(bmp, ctx, phoneBox) }
             busy = false
             when (r) {
                 is Reply.Ok -> {
@@ -389,7 +399,7 @@ fun CameraScreen(state: AppState) {
                     subjectBox = subject?.box ?: r.value.subjectBox
                     // Start following it: remember how it looked when asked, and find it in the latest frame.
                     tracker.stop(); trackedBox = null
-                    val b = r.value.subjectBox
+                    val b = r.value.subjectBox   // the phone's outline when there was one (see Photographer.ask)
                     val nowGray = frame?.gray
                     if (b != null && grayAtAsk != null && nowGray != null) {
                         val ok = withContext(Dispatchers.Default) { tracker.start(grayAtAsk, b, nowGray) }
@@ -449,7 +459,11 @@ fun CameraScreen(state: AppState) {
 
     // The photographer's subject, followed live: the same tracked thing, or whatever overlaps its last place most.
     val coachSubject = coach?.let { c ->
-        things.firstOrNull { it.id != null && it.id == c.subjectId }
+        // The outlined subject that best overlaps where it was last (outlines follow size and zoom exactly).
+        val last = subjectBox
+        (if (last == null) null else (subjects + listOfNotNull(mainBox)).maxByOrNull { com.composepro.app.ai.overlap(it, last) }
+            ?.takeIf { com.composepro.app.ai.overlap(it, last) > 0.3f })?.let { Thing(null, RectF(it), c.advice.subject) }
+            ?: things.firstOrNull { it.id != null && it.id == c.subjectId }
             ?: trackedBox?.let { Thing(null, it, c.advice.subject) }
     }
     LaunchedEffect(frame) {
@@ -627,7 +641,12 @@ fun CameraScreen(state: AppState) {
     }
     val touchLayer = Modifier
         .pointerInput(camera) { detectTransformGestures { _, _, zoomChange, _ -> if (zoomChange != 1f) setZoom(zoom * zoomChange) } }
-        .pointerInput(camera) { detectTapGestures(onTap = { focus(it) }) }
+        .pointerInput(camera, subjects.isNotEmpty()) {
+            detectTapGestures(onTap = { p ->
+                focus(p)
+                if (subjects.isNotEmpty() && coach == null) tappedAt = Offset(p.x / size.width, p.y / size.height)
+            })
+        }
 
     // ---- Auto shot (user request 2026-10-08: "the user just holds, the camera adjusts and captures; as an option").
     // The camera does what it can itself (a zoom step is applied, focus and exposure go to the subject); once the steps
@@ -681,6 +700,11 @@ fun CameraScreen(state: AppState) {
             targetSize = ringMove?.size,
             // The ring goes green exactly when its step does, so the two never disagree.
             hit = steps.getOrNull(ringStep)?.done == true,
+            modifier = Modifier.fillMaxSize(),
+        )
+        SubjectOutline(
+            box = if (coach == null) mainBox else coachSubject?.box,
+            visible = photographerOn && !dark && ringMove == null,
             modifier = Modifier.fillMaxSize(),
         )
         if (state.tipsOn && !dark) LevelGuide(tilt, now, Modifier.fillMaxSize())
@@ -745,7 +769,7 @@ fun CameraScreen(state: AppState) {
                     steps = steps, ready = allDone, checking = busy, error = checkError,
                     onClose = { closeCoach(); closedFor = scanStart },
                     onTick = { i -> manualDone[i] = !(steps.getOrNull(i)?.done ?: false) },
-                    onNewSteps = { closeCoach(); askedFor = -1L; lookFrom = SystemClock.elapsedRealtime() },
+                    onNewSteps = { closeCoach(); askedFor = -1L; lookFrom = SystemClock.elapsedRealtime(); tappedAt = null },
                     newScene = newScene,
                     frameHint = ringMove?.let { m -> coachSubject?.let { s -> com.composepro.app.ai.frameHint(s, m, it.advice.kind) } },
                     angleHint = steps.firstOrNull { !it.done }?.move?.takeIf { it.check == CheckBy.Angle }?.let { com.composepro.app.ai.angleHint(it.angle, tilt) },
