@@ -417,24 +417,39 @@ fun FlashButton(setting: FlashSetting, onClick: () -> Unit, modifier: Modifier =
 
 /**
  * The level from the onboarding's tilt card, live (user test 2026-10-09: "if I tilt the camera it doesn't guide like
- * in the demo"). When the phone is held up and tipped sideways, a line across the middle follows the real horizon,
- * between two fixed marks, with the degrees under it. It turns green when straight (within 1.5°) and then fades away.
- * Not when the phone points down at a table (sideways tilt means nothing there).
+ * in the demo"). A line across the middle between two fixed marks, with the degrees under it; green within 1.5°, then
+ * it fades away.
+ *
+ * It follows the subject's own straight edges when it can see them (a laptop, a tray, a book, a table edge), because
+ * that's what has to look straight in the photo (user test 2026-10-20: "the camera shows straight but my laptop looks
+ * tilted": the laptop sat on a sagging bed). Otherwise, with the phone held up, it follows gravity, like a spirit level.
+ * When the top and bottom edges lean different ways, it's being seen from the side: turning the phone won't fix that.
  */
 @Composable
-fun LevelGuide(tilt: com.composepro.app.camera.Tilt, now: Long, modifier: Modifier = Modifier) {
+fun LevelGuide(tilt: com.composepro.app.camera.Tilt, now: Long, edge: com.composepro.app.camera.EdgeTilt? = null, modifier: Modifier = Modifier) {
+    // Edges come and go between frames; keep the last clear one for a second so the line doesn't jump between modes.
+    val memo = androidx.compose.runtime.remember { object { var at = 0L; var e: com.composepro.app.camera.EdgeTilt? = null } }
+    if (edge != null) { memo.e = edge; memo.at = now }
+    val seenEdge = memo.e.takeIf { now - memo.at < 1000 }
+    val edgeMode = seenEdge != null && !seenEdge.skew
+    val skew = seenEdge?.skew == true
     val upright = tilt != com.composepro.app.camera.Tilt.Unknown && tilt.offFlatDeg > 45f && kotlin.math.abs(tilt.rollDeg) <= 30f
-    val level = kotlin.math.abs(tilt.rollDeg) <= 1.5f
+    val raw = when {
+        edgeMode -> seenEdge!!.deg
+        upright -> tilt.rollDeg
+        else -> 0f
+    }
+    val deg by animateFloatAsState(raw, tween(250), label = "levelDeg")
+    val level = kotlin.math.abs(raw) <= 1.5f
     var levelSince by androidx.compose.runtime.remember { androidx.compose.runtime.mutableLongStateOf(0L) }
     if (level && levelSince == 0L) levelSince = now
     if (!level) levelSince = 0L
-    val show = upright && (!level || now - levelSince < 1200)
+    val show = skew || ((edgeMode || upright) && (!level || now - levelSince < 1200))
     val a by animateFloatAsState(if (show) 1f else 0f, tween(250), label = "level")
     if (a == 0f) return
-    val ok = if (level) 1f else 0f
-    val green by animateFloatAsState(ok, tween(200), label = "levelGreen")
+    val green by animateFloatAsState(if (level && !skew) 1f else 0f, tween(200), label = "levelGreen")
     Box(modifier.alpha(a)) {
-        Canvas(Modifier.fillMaxSize()) {
+        if (!skew) Canvas(Modifier.fillMaxSize()) {
             val mid = Offset(size.width / 2, size.height * 0.45f)
             val sw = 3.dp.toPx()
             val shade = Color.Black.copy(alpha = 0.3f)
@@ -444,22 +459,27 @@ fun LevelGuide(tilt: com.composepro.app.camera.Tilt, now: Long, modifier: Modifi
                 drawLine(shade, Offset(size.width * x0, mid.y), Offset(size.width * x1, mid.y), sw + 3.dp.toPx(), androidx.compose.ui.graphics.StrokeCap.Round)
                 drawLine(Color.White.copy(alpha = 0.8f), Offset(size.width * x0, mid.y), Offset(size.width * x1, mid.y), sw, androidx.compose.ui.graphics.StrokeCap.Round)
             }
-            // The horizon line, turned with the phone so it stays level with the world.
-            rotate(tilt.rollDeg, mid) {
+            // The line: along the subject's edges as they look now, or along the real horizon.
+            rotate(deg, mid) {
                 drawLine(shade, Offset(size.width * 0.2f, mid.y), Offset(size.width * 0.8f, mid.y), sw + 3.dp.toPx(), androidx.compose.ui.graphics.StrokeCap.Round)
                 drawLine(col, Offset(size.width * 0.2f, mid.y), Offset(size.width * 0.8f, mid.y), sw, androidx.compose.ui.graphics.StrokeCap.Round)
             }
             drawCircle(col, 5.dp.toPx(), mid)
         }
-        // The degrees, just under the line (which sits at 45% of the height)
+        // The words, just under the line (which sits at 45% of the height)
         androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
             Box(
                 Modifier.align(Alignment.TopCenter).padding(top = maxHeight * 0.45f + 18.dp)
                     .clip(CPShape.Pill).background(Color.Black.copy(alpha = 0.55f)).padding(horizontal = 12.dp, vertical = 5.dp),
             ) {
                 Text(
-                    if (level) "Straight ✓" else "${kotlin.math.abs(tilt.rollDeg).toInt()}° · turn until the line is level",
-                    style = CPType.CaptionMedium, color = if (level) CP.Right else CP.OnDark,
+                    when {
+                        skew -> "Face it straight on: move round until its edges look even"
+                        level -> "Straight ✓"
+                        edgeMode -> "${kotlin.math.abs(raw).toInt()}° · turn the phone until its edges are level"
+                        else -> "${kotlin.math.abs(raw).toInt()}° · turn until the line is level"
+                    },
+                    style = CPType.CaptionMedium, color = if (level && !skew) CP.Right else CP.OnDark,
                 )
             }
         }

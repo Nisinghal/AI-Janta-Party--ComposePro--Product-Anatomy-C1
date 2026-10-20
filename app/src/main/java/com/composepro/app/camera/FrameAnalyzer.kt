@@ -34,6 +34,8 @@ data class FrameResult(
     val gray: Gray? = null,
     /** The main subject(s) in view, whatever they are (SubjectFinder), as fractions of the view, biggest first. */
     val subjects: List<RectF> = emptyList(),
+    /** How tilted the main subject's straight edges look (EdgeLevel), or null when it has none clear enough. */
+    val edge: EdgeTilt? = null,
 )
 
 /**
@@ -45,6 +47,8 @@ class FrameAnalyzer(private val context: Context, private val onResult: (FrameRe
     private var detector: ObjectDetector? = null
     private var lastRun = 0L
     private var lastView: RectF? = null
+    private var lastEdgeAt = 0L
+    private var lastEdge: EdgeTilt? = null
     private var lastSeen: List<String> = emptyList()
 
     override fun analyze(proxy: ImageProxy) {
@@ -77,7 +81,11 @@ class FrameAnalyzer(private val context: Context, private val onResult: (FrameRe
             }
             val seen = things.map { "${it.category}#${it.id}" }
             if (seen != lastSeen) { lastSeen = seen; Log.d(TAG, "things=${things.size} ${things.map { "${it.category}#${it.id}${it.box.toShortString()}" }}") }
-            val r = FrameResult(things, light.meanY, light.centerY, light.clipFrac, light.warmth, gray, subjectFinder.subjects)
+            val found = subjectFinder.subjects
+            // The subject's straight edges, about 3 times a second (enough for a level, and cheap).
+            if (now - lastEdgeAt >= 300) { lastEdgeAt = now; lastEdge = edgeTilt(gray, SubjectFinder.main(found)) }
+            val edge = lastEdge
+            val r = FrameResult(things, light.meanY, light.centerY, light.clipFrac, light.warmth, gray, found, edge)
             mainThread.execute { onResult(r) }
         } catch (e: Exception) {
             Log.e(TAG, "analysis failed", e)

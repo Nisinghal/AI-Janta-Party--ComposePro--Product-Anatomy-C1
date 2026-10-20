@@ -91,7 +91,7 @@ object Photographer {
      * while another answers in a few; each model has its own free limit, so racing stays free.
      * The "-latest" alias moves forward with each Google release; the dated ones are older, often quieter models.
      */
-    @Volatile private var MODELS = listOf("gemini-3.1-flash-lite-preview", "gemini-3.5-flash-lite", "gemini-flash-lite-latest")
+    @Volatile private var MODELS = listOf("gemini-3.1-flash-lite-preview", "gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-flash-latest")
 
     /**
      * Fixed order, best first. The answer comes from the first of these that answers (the next only if it fails or
@@ -100,7 +100,9 @@ object Photographer {
      * owner's (user test 2026-10-09: "every time I reload for the same object it gives different instructions",
      * "the tester APK isn't working the same as the original").
      */
-    private val PREFERRED = listOf("gemini-3.1-flash-lite-preview", "gemini-3.5-flash-lite", "gemini-flash-lite-latest")
+    // The last one isn't a Lite model: when Google's Lite models are overloaded (all three busy or past 20 s, phone log
+    // 2026-10-20, "the photographer isn't available"), the bigger Flash usually still answers.
+    private val PREFERRED = listOf("gemini-3.1-flash-lite-preview", "gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-flash-latest")
     private const val PREFER_MS = 5_000L
     @Volatile private var warmed = false
 
@@ -130,7 +132,7 @@ object Photographer {
             fun version(n: String) = Regex("""\d+(\.\d+)?""").find(n)?.value?.toFloatOrNull() ?: 0f
             val picked = usable.filter { "latest" !in it }.sortedWith(compareBy<String>({ "lite" !in it }, { -version(it) })).take(2)
             // The preferred ones this key has, in their fixed order; others only to fill a gap.
-            MODELS = (PREFERRED.filter { it in usable || it.endsWith("-latest") } + picked).distinct().take(3)
+            MODELS = (PREFERRED.filter { it in usable || it.endsWith("-latest") } + picked).distinct().take(4)
             Log.i("ComposePro", "Gemini models, in order: $MODELS (of ${usable.size} usable)")
         } catch (e: Exception) {
             Log.w("ComposePro", "Gemini warm-up failed: ${e.message}")
@@ -401,6 +403,7 @@ object Photographer {
                 }
             }
         } catch (e: SocketTimeoutException) {
+            Log.w("ComposePro", "Gemini $model timed out after ${System.currentTimeMillis() - started} ms")
             Reply.Failed("The photographer took too long. Try again.")
         } catch (e: IOException) {
             Reply.Failed("Couldn't reach the photographer. Check your internet and try again.")
@@ -412,7 +415,7 @@ object Photographer {
         val conn = (URL(endpoint(model)).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 15_000
-            readTimeout = 20_000
+            readTimeout = 30_000
             doOutput = true
             setRequestProperty("Content-Type", "application/json")
             setRequestProperty("x-goog-api-key", BuildConfig.GEMINI_API_KEY)
