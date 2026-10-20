@@ -380,6 +380,11 @@ fun CameraScreen(state: AppState) {
             busy = false
             when (r) {
                 is Reply.Ok -> {
+                    // Phase 0 baseline (owner's build only): keep the view and the steps it got.
+                    val zoomAtAsk = shownZoom
+                    if (com.composepro.app.data.TestRecord.enabled) withContext(Dispatchers.IO) {
+                        com.composepro.app.data.TestRecord.save(context, bmp, r.value, zoomAtAsk, tiltNow.offFlatDeg)
+                    }
                     val subject = r.value.subjectBox?.let { b -> matchSubject(b, seenNow) }
                     subjectBox = subject?.box ?: r.value.subjectBox
                     // Start following it: remember how it looked when asked, and find it in the latest frame.
