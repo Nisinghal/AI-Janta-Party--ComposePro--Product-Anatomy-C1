@@ -276,6 +276,17 @@ fun CameraScreen(state: AppState) {
         if (key == raw.key && now - pendingSince >= SETTLE_MS) { shown = raw; pendingKey = null }
     }
     val things = frame?.things.orEmpty()
+    // Held sideways (landscape): the app is upright-only, so the photographer saw the scene on its side and suggested
+    // the wrong angle (potted plants, 2026-10-23: "look down from above"), and the photo was saved rotated.
+    val sideways = tilt != Tilt.Unknown && tilt.offFlatDeg > 35f && kotlin.math.abs(kotlin.math.abs(tilt.rollDeg) - 90f) < 30f
+    val photoRotation = when {
+        tilt == Tilt.Unknown || tilt.offFlatDeg <= 35f -> null                       // pointing down: keep the last one
+        tilt.rollDeg in 45f..135f -> android.view.Surface.ROTATION_90
+        tilt.rollDeg in -135f..-45f -> android.view.Surface.ROTATION_270
+        kotlin.math.abs(tilt.rollDeg) > 135f -> android.view.Surface.ROTATION_180
+        else -> android.view.Surface.ROTATION_0
+    }
+    LaunchedEffect(photoRotation) { photoRotation?.let { imageCapture.targetRotation = it } }
     // The main subject, whatever it is (PLAN.md Phase 1): the biggest thing in view, with any others nearly as big
     // (a plate and its glass) as one. A tap on another thing makes that the subject instead (a correction, not a must).
     val subjects = frame?.subjects.orEmpty()
@@ -373,7 +384,8 @@ fun CameraScreen(state: AppState) {
             "The phone's own detector thinks it sees: ${if (things.isEmpty()) "nothing it recognises" else describe(things)} (it can be wrong)." +
             (mainBox?.let { b ->
                 " The phone outlined the main subject at [ymin, xmin, ymax, xmax] = [${(b.top * 1000).toInt()}, ${(b.left * 1000).toInt()}, ${(b.bottom * 1000).toInt()}, ${(b.right * 1000).toInt()}] " +
-                    "(0 to 1000). That is the subject: name it, build every step around it, and give that box as subject_box."
+                    "(0 to 1000). If that is what the photo should be about, give that box as subject_box; if it outlined the " +
+                    "wrong thing (a window behind a bike, one bowl of a full plate), give the right subject's box instead."
             } ?: "")
     }
 
@@ -386,13 +398,14 @@ fun CameraScreen(state: AppState) {
         val tiltNow = tilt
         val grayAtAsk = frame?.gray
         val phoneBox = mainBox?.let { RectF(it) }
+        val subjectsNow = subjects.map { RectF(it) }
         val ctx = phoneContext() + " What should this person do to take a better photo of this?"
         busy = true
         askError = null
         lastReqAt = SystemClock.elapsedRealtime()
         scope.launch {
             val zoomAtAsk = shownZoom
-            val r = withContext(Dispatchers.IO) { Photographer.ask(bmp, ctx, phoneBox, zoomAtAsk) }
+            val r = withContext(Dispatchers.IO) { Photographer.ask(bmp, ctx, phoneBox, zoomAtAsk, subjectsNow) }
             busy = false
             when (r) {
                 is Reply.Ok -> {
@@ -473,7 +486,13 @@ fun CameraScreen(state: AppState) {
     val coachSubject = coach?.let { c ->
         // The outlined subject that best overlaps where it was last (outlines follow size and zoom exactly).
         val last = subjectBox
-        (if (last == null) null else (subjects + listOfNotNull(mainBox)).maxByOrNull { com.composepro.app.ai.overlap(it, last) }
+        // A many-piece subject (a full plate) is followed as all its pieces together.
+        val pieces = last?.let { l ->
+            val around = RectF(l).apply { inset(-0.1f * width(), -0.1f * height()) }
+            subjects.filter { around.contains(it.centerX(), it.centerY()) }.takeIf { it.isNotEmpty() }
+                ?.let { ps -> RectF(ps[0]).apply { ps.drop(1).forEach { p -> union(p) } } }
+        }
+        (if (last == null) null else (subjects + listOfNotNull(mainBox, pieces)).maxByOrNull { com.composepro.app.ai.overlap(it, last) }
             ?.takeIf { com.composepro.app.ai.overlap(it, last) > 0.3f })?.let { Thing(null, RectF(it), c.advice.subject) }
             ?: things.firstOrNull { it.id != null && it.id == c.subjectId }
             ?: trackedBox?.let { Thing(null, it, c.advice.subject) }
@@ -570,7 +589,7 @@ fun CameraScreen(state: AppState) {
             // whenever the view is too dark (phone face down, lens covered: it got "ready, 0 of 0 done" back once,
             // and Auto shot would then have taken a black photo).
             if (closedFor == scanStart || frame == null) return@LaunchedEffect
-            if (dark || frame!!.meanY < com.composepro.app.camera.Thresholds.TOO_DARK) { lookFrom = now; return@LaunchedEffect }
+            if (dark || sideways || frame!!.meanY < com.composepro.app.camera.Thresholds.TOO_DARK) { lookFrom = now; return@LaunchedEffect }
             val firstAsk = askedFor != lookFrom && now - lookFrom >= SCAN_MS
             val retry = askError != null && now - lastReqAt > 30_000
             if (firstAsk || retry) { askedFor = lookFrom; askPhotographer() }
@@ -684,7 +703,7 @@ fun CameraScreen(state: AppState) {
     }
     val heldForShot = stillSince != 0L && now - stillSince >= 500
     // Its subject must be in view: the steps are for that subject, not for whatever the phone points at now.
-    val subjectHere = coach == null || (coachSubject != null && lostSince == 0L && !newScene)
+    val subjectHere = !sideways && (coach == null || (coachSubject != null && lostSince == 0L && !newScene))
     val armed = state.autoShot && shotReady && heldForShot && subjectHere && now - openedAt > 2_000
     var countFrom by remember { mutableLongStateOf(0L) }
     // Why Auto shot is or isn't firing, in the phone's log (only when the reason changes).
@@ -752,7 +771,13 @@ fun CameraScreen(state: AppState) {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             if (!photographerOn) TipCapsule(shown, ::notRight)
-            NoteChip(if (dark) shown.phone else null)
+            NoteChip(
+                when {
+                    dark -> shown.phone
+                    sideways -> "Hold the phone upright for steps. You can still take the photo sideways."
+                    else -> null
+                },
+            )
             InfoCapsule(
                 visible = scanning && !dark && !photographerOn && !auto,
                 line1 = if (count == 0 && now - scanStart > 1500) "Point at what you want to shoot." else "Looking at what's here…",

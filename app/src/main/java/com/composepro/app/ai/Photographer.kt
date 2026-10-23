@@ -303,10 +303,10 @@ object Photographer {
     val hasKey get() = BuildConfig.GEMINI_API_KEY.isNotBlank()
 
     /** Blocking: call from a background thread. [context] is what the phone knows (angle, zoom, what its detector saw). */
-    fun ask(frame: Bitmap, context: String, phoneBox: RectF? = null, zoomNow: Float = 1f): Reply<Advice> =
+    fun ask(frame: Bitmap, context: String, phoneBox: RectF? = null, zoomNow: Float = 1f, subjects: List<RectF> = emptyList()): Reply<Advice> =
         when (val r = generate(ASK_SYSTEM, ASK_SCHEMA, frame, context)) {
             is Reply.Failed -> r
-            is Reply.Ok -> parseAdvice(r.value, phoneBox, zoomNow)?.let { Reply.Ok(it) } ?: Reply.Failed("The photographer couldn't answer this time. Try again.")
+            is Reply.Ok -> parseAdvice(r.value, phoneBox, zoomNow, subjects)?.let { Reply.Ok(it) } ?: Reply.Failed("The photographer couldn't answer this time. Try again.")
         }
 
     /** Blocking: sends the new frame and the moves given earlier, and gets back which are done. */
@@ -433,7 +433,7 @@ object Photographer {
         null
     }
 
-    private fun parseAdvice(text: String, phoneBox: RectF? = null, zoomNow: Float = 1f): Advice? = try {
+    private fun parseAdvice(text: String, phoneBox: RectF? = null, zoomNow: Float = 1f, subjects: List<RectF> = emptyList()): Advice? = try {
         val o = JSONObject(text)
         val moves = o.optJSONArray("moves") ?: JSONArray()
         val geminiBox = o.optJSONArray("subject_box")?.takeIf { it.length() == 4 }?.let { b ->
@@ -441,7 +441,7 @@ object Photographer {
             RectF(b.getDouble(1).toFloat() / 1000f, b.getDouble(0).toFloat() / 1000f, b.getDouble(3).toFloat() / 1000f, b.getDouble(2).toFloat() / 1000f)
         }
         // The phone's own outline of the subject is tighter than the model's guess, so it wins when there is one.
-        val box = phoneBox ?: geminiBox
+        val box = subjectBoxFrom(geminiBox, phoneBox, subjects)
         val kind = when (o.optString("kind")) { "scene" -> ShotKind.Scene; "living" -> ShotKind.Living; else -> ShotKind.TableTop }
         val asked = when (o.optString("frame")) {
             "thirds" -> Guide.Thirds; "centre" -> Guide.Centre; "front_back" -> Guide.FrontBack; "diagonal" -> Guide.Diagonal
@@ -509,8 +509,16 @@ object Photographer {
                 // So the words are only rewritten for a subject small enough to move onto a spot, never up/down when
                 // there's also an angle step, and only when it's clearly off the spot.
                 val small = box != null && box.height() < 0.55f && box.width() < 0.7f
-                val hasAngleStep = (0 until moves.length()).any { moves.getJSONObject(it).optString("check") == "angle" }
-                val words = menuWords(doIt, m.optString("thing"), zoomTo)
+                val hasAngleStep = (0 until moves.length()).any { moves.getJSONObject(it).let { j -> j.optString("check") == "angle" || j.optString("do").startsWith("look_") } }
+                // Noodle test 2026-10-23: the step said "Move back" while its size needed "Move closer". The phone's
+                // measurement decides which.
+                val sizeAsked = frac("size")?.coerceAtMost(0.6f)
+                val sizeWords = if ((doIt == "move_closer" || doIt == "move_back") && box != null && sizeAsked != null) when {
+                    box.height() < sizeAsked * 0.8f -> "Move closer"
+                    box.height() > sizeAsked * 1.2f -> "Move back"
+                    else -> null
+                } else null
+                val words = sizeWords ?: menuWords(doIt, m.optString("thing"), zoomTo)
                     ?: m.optString("action").split(Regex("\\s+")).take(8).joinToString(" ")
                 val action = if (finalCheck == CheckBy.Frame && small && box != null && tx != null && ty != null && (doIt == "move_left" || doIt == "move_right" || doIt == "other" || doIt.isBlank()))
                     frameAction(box.centerX() - tx, box.centerY() - ty, kind, allowVertical = !hasAngleStep) ?: words
@@ -565,6 +573,24 @@ object Photographer {
     }
 
     /** "Move the phone a little left so the mug sits in the circle", from how far the subject is from the circle. */
+    /**
+     * The subject's box (phone test 2026-10-23: on a bicycle the phone's outline grabbed the window above it; on a full
+     * thali it took one bowl). The photographer knows what the photo is about, so its box decides WHICH thing; the
+     * phone's outlines inside that box give the tight shape (a whole plate = all its pieces together). With no outline
+     * inside it (a thin bike frame), the photographer's own box is used. A vague whole-picture box defers to the phone.
+     */
+    private fun subjectBoxFrom(gemini: RectF?, phone: RectF?, subjects: List<RectF>): RectF? {
+        if (gemini == null) return phone
+        if (gemini.width() * gemini.height() > 0.9f) return phone ?: gemini
+        val around = RectF(gemini).apply { inset(-0.05f * width(), -0.05f * height()) }
+        val inside = subjects.filter { around.contains(it.centerX(), it.centerY()) && it.width() * it.height() > 0.005f }
+        if (inside.isNotEmpty()) {
+            val u = RectF(inside[0]); inside.drop(1).forEach { u.union(it) }
+            if (overlap(u, gemini) > 0.3f) return u
+        }
+        return gemini
+    }
+
     /** "Move a little left", from where the subject is and where the circle is, so the words and the circle agree. */
     private fun frameAction(dx: Float, dy: Float, kind: ShotKind, allowVertical: Boolean = true): String? {
         val ddy = if (allowVertical) dy else 0f
