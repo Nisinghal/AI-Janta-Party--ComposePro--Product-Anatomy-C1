@@ -133,8 +133,6 @@ private const val SETTLE_MS = 900L
 
 /** How long the camera looks before it picks a guide, how long it explains the pick, and how long a changed count must last before it looks again. */
 private const val SCAN_MS = 3000L
-/** When, during the 3-second look, the photographer is asked (once the subject is outlined). */
-private const val ASK_AT_MS = 1500L
 private const val EXPLAIN_MS = 2000L
 private const val RELOOK_MS = 4000L
 
@@ -594,9 +592,9 @@ fun CameraScreen(state: AppState) {
             // and Auto shot would then have taken a black photo).
             if (closedFor == scanStart || frame == null) return@LaunchedEffect
             if (dark || sideways || frame!!.meanY < com.composepro.app.camera.Thresholds.TOO_DARK) { lookFrom = now; return@LaunchedEffect }
-            // Group feedback 2026-10-23: "taking time". The photographer is asked during the 3-second look, as soon as
-            // the subject is outlined (or at 3 s if nothing is), so its answer is often ready when the look ends.
-            val firstAsk = askedFor != lookFrom && now - lookFrom >= ASK_AT_MS && (mainBox != null || now - lookFrom >= SCAN_MS)
+            // Asked only after the full 3-second look, so the subject is found properly first (user decision
+            // 2026-10-23: "taking time is fine; it needs to detect properly, keep 3 seconds").
+            val firstAsk = askedFor != lookFrom && now - lookFrom >= SCAN_MS
             val retry = askError != null && now - lastReqAt > 30_000
             if (firstAsk || retry) { askedFor = lookFrom; askPhotographer() }
             return@LaunchedEffect
