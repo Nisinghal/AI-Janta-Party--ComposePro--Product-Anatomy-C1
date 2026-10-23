@@ -133,6 +133,8 @@ private const val SETTLE_MS = 900L
 
 /** How long the camera looks before it picks a guide, how long it explains the pick, and how long a changed count must last before it looks again. */
 private const val SCAN_MS = 3000L
+/** When, during the 3-second look, the photographer is asked (once the subject is outlined). */
+private const val ASK_AT_MS = 1500L
 private const val EXPLAIN_MS = 2000L
 private const val RELOOK_MS = 4000L
 
@@ -568,6 +570,8 @@ fun CameraScreen(state: AppState) {
     var askedFor by remember { mutableLongStateOf(-1L) }
     // When the current 3-second look began (reset by ↻ and by a dark view).
     var lookFrom by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
+    // The steps (card, circle, dot) show once the 3-second look is over, even if they arrived sooner.
+    val showSteps = coach != null && now - lookFrom >= SCAN_MS
     var scene by remember { mutableStateOf<List<Int>>(emptyList()) }
     var sceneChangedAt by remember { mutableLongStateOf(0L) }
     var sceneAtCheck by remember { mutableStateOf<List<Int>>(emptyList()) }
@@ -590,7 +594,9 @@ fun CameraScreen(state: AppState) {
             // and Auto shot would then have taken a black photo).
             if (closedFor == scanStart || frame == null) return@LaunchedEffect
             if (dark || sideways || frame!!.meanY < com.composepro.app.camera.Thresholds.TOO_DARK) { lookFrom = now; return@LaunchedEffect }
-            val firstAsk = askedFor != lookFrom && now - lookFrom >= SCAN_MS
+            // Group feedback 2026-10-23: "taking time". The photographer is asked during the 3-second look, as soon as
+            // the subject is outlined (or at 3 s if nothing is), so its answer is often ready when the look ends.
+            val firstAsk = askedFor != lookFrom && now - lookFrom >= ASK_AT_MS && (mainBox != null || now - lookFrom >= SCAN_MS)
             val retry = askError != null && now - lastReqAt > 30_000
             if (firstAsk || retry) { askedFor = lookFrom; askPhotographer() }
             return@LaunchedEffect
@@ -704,7 +710,7 @@ fun CameraScreen(state: AppState) {
     val heldForShot = stillSince != 0L && now - stillSince >= 500
     // Its subject must be in view: the steps are for that subject, not for whatever the phone points at now.
     val subjectHere = !sideways && (coach == null || (coachSubject != null && lostSince == 0L && !newScene))
-    val armed = state.autoShot && shotReady && heldForShot && subjectHere && now - openedAt > 2_000
+    val armed = state.autoShot && showSteps && shotReady && heldForShot && subjectHere && now - openedAt > 2_000
     var countFrom by remember { mutableLongStateOf(0L) }
     // Why Auto shot is or isn't firing, in the phone's log (only when the reason changes).
     val autoWhy = when {
@@ -741,7 +747,7 @@ fun CameraScreen(state: AppState) {
         if (!photographerOn) EdgeLayer(shown.main, shown.edge, Modifier.fillMaxSize())
         else if (allDone) EdgeLayer(coachSubject, EdgeState.Right, Modifier.fillMaxSize())
         CoachLayer(
-            target = ringMove?.let { P(it.targetX ?: 0.5f, it.targetY ?: 0.5f) },
+            target = ringMove?.takeIf { showSteps }?.let { P(it.targetX ?: 0.5f, it.targetY ?: 0.5f) },
             subject = coachSubject?.let { P(it.cx, it.cy) },
             subjectBox = if (ringMove != null) coachSubject?.box else null,
             targetSize = ringMove?.size,
@@ -815,8 +821,8 @@ fun CameraScreen(state: AppState) {
                 ZoomButtons(current = shownZoom, stops = zoomStops, onPick = ::pickZoom)
             }
             val cardSpot = Modifier.padding(start = CPSpace.S2, end = CPSpace.S2, bottom = CPSpace.S3)
-            if (coach == null && photographerOn) FindingCard(looking = !busy && now - lookFrom < SCAN_MS, modifier = cardSpot)
-            coach?.let {
+            if ((coach == null || !showSteps) && photographerOn) FindingCard(looking = now - lookFrom < SCAN_MS, modifier = cardSpot)
+            if (showSteps) coach?.let {
                 CoachCard(
                     frame = it.advice.frame?.label, frameWhy = it.advice.frameWhy,
                     steps = steps, ready = allDone, checking = busy, error = checkError,

@@ -215,6 +215,10 @@ object Photographer {
            cut off at an edge, step back.
         3. Position: one "frame" move, only if the subject is not already near the frame's spot.
         4. Only then light or tidying, and only if something is clearly wrong.
+        A busy background (other dishes, jars, bottles, a bag) pulls the eye away (group feedback 2026-10-23: a bowl of
+        noodles in front of glass bowls and jars, "not the best placement"). If the subject can be moved, "remove_thing"
+        for the worst one; otherwise prefer the step that hides it: look down at the food more ("look_at_slant" or
+        "look_from_above"), or "move_closer" / "zoom_in" so the subject fills more of the picture.
         Give 1 to 3 moves in that order, as few as will do; each reason at most 12 words. One idea per move, so each can be
         checked on its own. The phone looked at the scene for 3 seconds first; use its list of what it saw to pick the subject.
 
