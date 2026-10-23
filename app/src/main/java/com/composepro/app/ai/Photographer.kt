@@ -303,10 +303,10 @@ object Photographer {
     val hasKey get() = BuildConfig.GEMINI_API_KEY.isNotBlank()
 
     /** Blocking: call from a background thread. [context] is what the phone knows (angle, zoom, what its detector saw). */
-    fun ask(frame: Bitmap, context: String, phoneBox: RectF? = null): Reply<Advice> =
+    fun ask(frame: Bitmap, context: String, phoneBox: RectF? = null, zoomNow: Float = 1f): Reply<Advice> =
         when (val r = generate(ASK_SYSTEM, ASK_SCHEMA, frame, context)) {
             is Reply.Failed -> r
-            is Reply.Ok -> parseAdvice(r.value, phoneBox)?.let { Reply.Ok(it) } ?: Reply.Failed("The photographer couldn't answer this time. Try again.")
+            is Reply.Ok -> parseAdvice(r.value, phoneBox, zoomNow)?.let { Reply.Ok(it) } ?: Reply.Failed("The photographer couldn't answer this time. Try again.")
         }
 
     /** Blocking: sends the new frame and the moves given earlier, and gets back which are done. */
@@ -433,7 +433,7 @@ object Photographer {
         null
     }
 
-    private fun parseAdvice(text: String, phoneBox: RectF? = null): Advice? = try {
+    private fun parseAdvice(text: String, phoneBox: RectF? = null, zoomNow: Float = 1f): Advice? = try {
         val o = JSONObject(text)
         val moves = o.optJSONArray("moves") ?: JSONArray()
         val geminiBox = o.optJSONArray("subject_box")?.takeIf { it.length() == 4 }?.let { b ->
@@ -523,7 +523,20 @@ object Photographer {
                     // their own shadow and out-of-focus shots (group feedback 2026-10-07).
                     angle = angle, targetX = tx, targetY = ty, size = frac("size")?.coerceAtMost(0.6f), zoom = zoomTo,
                 )
-            }.filter { it.action.isNotBlank() }.take(3),
+            }.filter { it.action.isNotBlank() }
+                // A zoom that would push the subject past the edges is dropped (user test 2026-10-23: a full plate of food
+                // was zoomed to 2× and cut off). Zooming grows everything away from the centre by target ÷ now.
+                .filter { mv ->
+                    val z = mv.zoom
+                    if (mv.check != CheckBy.Zoom || z == null || box == null || z <= zoomNow) true
+                    else {
+                        val f = z / zoomNow
+                        val l = 0.5f + (box.left - 0.5f) * f; val r = 0.5f + (box.right - 0.5f) * f
+                        val t = 0.5f + (box.top - 0.5f) * f; val b = 0.5f + (box.bottom - 0.5f) * f
+                        l >= 0.04f && r <= 0.96f && t >= 0.04f && b <= 0.96f
+                    }
+                }
+                .take(3),
             subjectBox = box,
             frame = frame,
             frameWhy = o.optString("frame_why"),

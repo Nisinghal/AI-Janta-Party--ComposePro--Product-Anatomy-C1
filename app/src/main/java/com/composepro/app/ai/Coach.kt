@@ -51,7 +51,8 @@ fun liveCheck(move: Move, tilt: Tilt, subject: Thing?, zoom: Float): Boolean? = 
         val size = move.size
         // Within ~15% of the asked-for height (was 30% + 0.05: a laptop at 60% passed for 85%, phone test 2026-10-06).
         val sized = size == null || abs(s.box.height() - size) <= size * SIZE_SLACK + 0.02f
-        onSpot && sized
+        val notCut = s.box.left > 0.02f && s.box.top > 0.02f && s.box.right < 0.98f && s.box.bottom < 0.98f
+        onSpot && sized && notCut
     }
     CheckBy.Other -> null
 }

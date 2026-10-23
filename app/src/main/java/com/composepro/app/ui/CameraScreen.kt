@@ -391,12 +391,12 @@ fun CameraScreen(state: AppState) {
         askError = null
         lastReqAt = SystemClock.elapsedRealtime()
         scope.launch {
-            val r = withContext(Dispatchers.IO) { Photographer.ask(bmp, ctx, phoneBox) }
+            val zoomAtAsk = shownZoom
+            val r = withContext(Dispatchers.IO) { Photographer.ask(bmp, ctx, phoneBox, zoomAtAsk) }
             busy = false
             when (r) {
                 is Reply.Ok -> {
                     // Phase 0 baseline (owner's build only): keep the view and the steps it got.
-                    val zoomAtAsk = shownZoom
                     if (com.composepro.app.data.TestRecord.enabled) withContext(Dispatchers.IO) {
                         com.composepro.app.data.TestRecord.save(context, bmp, r.value, zoomAtAsk, tiltNow.offFlatDeg)
                     }
@@ -454,7 +454,14 @@ fun CameraScreen(state: AppState) {
         }
     }
 
-    fun closeCoach() { coach = null; checkError = null; streak.clear(); liveOk.clear(); doneOnce.clear(); tracker.stop(); trackedBox = null }
+    // Set when Auto shot zoomed by itself for the current plan: that zoom is undone when the plan goes (plate test
+    // 2026-10-23: a 2× from the previous plan, for a foot, was still on when the plate was shot).
+    var zoomBackLater by remember { mutableStateOf(false) }
+    var zoomBackNow by remember { mutableStateOf(false) }
+    fun closeCoach() {
+        coach = null; checkError = null; streak.clear(); liveOk.clear(); doneOnce.clear(); tracker.stop(); trackedBox = null
+        if (zoomBackLater) { zoomBackLater = false; zoomBackNow = true }
+    }
 
     // Zoom taps and pinches: move the tracked box with the picture instead of losing the subject.
     LaunchedEffect(shownZoom) {
@@ -663,25 +670,29 @@ fun CameraScreen(state: AppState) {
         if (!state.autoShot || zoomedFor === c.advice) return@LaunchedEffect
         zoomedFor = c.advice
         val z = c.advice.moves.firstOrNull { it.check == CheckBy.Zoom }?.zoom ?: return@LaunchedEffect
-        if (kotlin.math.abs(shownZoom - z) > 0.05f) pickZoom(z)
+        if (kotlin.math.abs(shownZoom - z) > 0.05f) { pickZoom(z); zoomBackLater = true }
     }
+    LaunchedEffect(zoomBackNow) { if (zoomBackNow) { zoomBackNow = false; if (kotlin.math.abs(shownZoom - 1f) > 0.05f) pickZoom(1f) } }
     val shotReady = when {
         unavailable || taking || dark || (frame?.meanY ?: 0f) < com.composepro.app.camera.Thresholds.TOO_DARK -> false
-        // Steps the phone can check must be done; steps only the photographer can judge ("move the phone back") don't
-        // hold it up, since they often never tick by themselves. With no checkable step at all, all steps must be done.
-        coach != null -> allDone || (steps.any { it.live } && steps.filter { it.live }.all { it.done })
+        // Every step must be done, exactly when the card says "All done" (user test 2026-10-23: it took the photo with
+        // steps still open). Steps the phone can't check tick by the photographer's look or by a tap.
+        coach != null -> allDone
         photographerOn -> false            // the steps are still on their way
         !state.tipsOn -> true
         else -> shown.edge == EdgeState.Right
     }
     val heldForShot = stillSince != 0L && now - stillSince >= 500
-    val armed = state.autoShot && shotReady && heldForShot && now - openedAt > 2_000
+    // Its subject must be in view: the steps are for that subject, not for whatever the phone points at now.
+    val subjectHere = coach == null || (coachSubject != null && lostSince == 0L && !newScene)
+    val armed = state.autoShot && shotReady && heldForShot && subjectHere && now - openedAt > 2_000
     var countFrom by remember { mutableLongStateOf(0L) }
     // Why Auto shot is or isn't firing, in the phone's log (only when the reason changes).
     val autoWhy = when {
         !state.autoShot -> "off"
         coach == null -> "no steps yet"
         !shotReady -> "waiting for steps: ${steps.count { it.done }}/${steps.size} done (${steps.count { it.live && !it.done }} checkable open)"
+        !subjectHere -> "the steps' subject isn't in view"
         !heldForShot -> "waiting for the phone to be still"
         now - openedAt <= 2_000 -> "camera just opened"
         else -> "counting down"
