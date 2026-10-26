@@ -1,0 +1,543 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<title>Compose Pro</title>
+<meta name="description" content="Compose Pro is an Android camera app that tells you, in a few plain words, how to frame your photo.">
+<meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap">
+</head><body>
+<style>
+/* Layout: a live camera screen beside plain words; sections read top to bottom like the app's own flow (look, steps, shoot). */
+:root {
+  --ink-rgb: 16, 15, 15;
+  --bg: #F9F9F6;
+  --raised: #F2F2EB;
+  --ink: #100F0F;
+  --muted: rgba(var(--ink-rgb), 0.62);
+  --accent: #100F0F;
+  --on-accent: #F9F9F6;
+  --off: #D92D20;
+  --right: #1F9D55;
+  --brand: #2A9C4C;
+  --line: rgba(var(--ink-rgb), 0.08);
+  /* camera materials, the same in both themes */
+  --cam: #000000;
+  --glass: rgba(28, 28, 30, 0.78);
+  --on-cam: #FFFFFF;
+  --font-display: "Space Grotesk", -apple-system, "Segoe UI", sans-serif;
+  --font-body: "Space Grotesk", -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "Space Mono", "SFMono-Regular", Consolas, monospace;
+  --r-panel: 18px;
+  --r-card: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ink-rgb: 245, 244, 240;
+    --bg: #141311; --raised: #1E1D19; --ink: #F5F4F0; --muted: rgba(245, 244, 240, 0.62);
+    --accent: #F5F4F0; --on-accent: #141311; --off: #FF6257; --right: #3CC47C; --brand: #3CC47C;
+    --line: rgba(255, 255, 255, 0.10); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ink-rgb: 245, 244, 240;
+  --bg: #141311; --raised: #1E1D19; --ink: #F5F4F0; --muted: rgba(245, 244, 240, 0.62);
+  --accent: #F5F4F0; --on-accent: #141311; --off: #FF6257; --right: #3CC47C; --brand: #3CC47C;
+  --line: rgba(255, 255, 255, 0.10); color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: var(--font-body); font-size: 16px; line-height: 1.55;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1080px; margin: 0 auto; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; letter-spacing: -0.02em; }
+h1 { font-size: clamp(2.3rem, 5.4vw, 3.6rem); line-height: 1.08; font-weight: 700; }
+h2 { font-size: clamp(1.7rem, 3.4vw, 2.3rem); line-height: 1.15; font-weight: 500; }
+h3 { font-size: 1.15rem; line-height: 1.3; font-weight: 600; letter-spacing: -0.01em; }
+p { margin: 0; }
+.lede { font-size: 1.15rem; color: var(--muted); max-width: 34rem; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.82rem; letter-spacing: normal; text-transform: none; color: var(--brand); font-weight: 400; }
+a { color: inherit; }
+:focus-visible { outline: 3px solid var(--right); outline-offset: 3px; border-radius: 6px; }
+
+/* header */
+.top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-block: 18px; }
+.brand { display: flex; align-items: center; gap: 10px; font-family: var(--font-display); font-weight: 600; font-size: 1.1rem; text-decoration: none; }
+.brand svg { width: 30px; height: 30px; border-radius: 8px; display: block; }
+.top .meta { font-family: var(--font-mono); font-size: 0.85rem; color: var(--muted); }
+
+/* hero: centred, the icon on top, one live step under the headline */
+.hero { display: grid; justify-items: center; text-align: center; gap: 22px; padding-block: 48px 40px; }
+.app-icon { width: 92px; height: 92px; border-radius: 22px; display: block; box-shadow: 0 1px 2px rgba(var(--ink-rgb), 0.06), 0 14px 30px -18px rgba(var(--ink-rgb), 0.35); }
+.hero h1 { max-width: 20ch; }
+.lede { font-size: 1.15rem; color: var(--muted); max-width: 34rem; }
+.live-step {
+  display: inline-flex; align-items: center; gap: 12px; min-height: 52px; padding: 10px 20px 10px 12px;
+  background: var(--raised); border-radius: 999px; font-size: 1.15rem; font-weight: 600; text-align: left;
+}
+.live-step .dot { width: 30px; height: 30px; border-radius: 50%; background: var(--off); color: #fff; display: grid; place-items: center; font-size: 0.95rem; font-weight: 700; transition: background .3s; flex: none; }
+.live-step.ok .dot { background: var(--right); }
+.live-step .words { transition: opacity .25s; }
+.live-step.swap .words { opacity: 0; }
+.btn { display: inline-flex; align-items: center; justify-content: center; min-height: 54px; padding: 0 30px; border-radius: 999px; font-weight: 600; text-decoration: none; font-size: 1.05rem; }
+.btn-main { background: var(--accent); color: var(--on-accent); min-width: min(100%, 320px); }
+.small { font-family: var(--font-mono); font-size: 0.82rem; color: var(--muted); }
+
+/* the demo, framed beside the caption with a hairline border (not a filled panel) */
+.stage { background: var(--bg); border: 1px solid var(--line); box-shadow: 0 1px 2px rgba(var(--ink-rgb), 0.04); border-radius: var(--r-panel); padding: 40px clamp(20px, 4vw, 56px); }
+.stage-grid { display: grid; grid-template-columns: minmax(0, 1fr) min(300px, 100%); align-items: center; gap: 44px; }
+.stage-text { display: grid; gap: 14px; justify-items: start; text-align: left; max-width: 26rem; }
+.stage .caption { font-size: 1.1rem; }
+.stage .caption b { font-weight: 600; }
+
+/* the phone */
+.phone-col { display: flex; justify-content: center; min-width: 0; }
+.phone {
+  position: relative; width: 100%; max-width: 300px; aspect-ratio: 300 / 640;
+  background: var(--cam); border-radius: 44px; padding: 10px;
+  box-shadow: 0 0 0 1px var(--line), 0 30px 60px -30px rgba(0, 0, 0, 0.45);
+}
+.screen { position: relative; width: 100%; height: 100%; border-radius: 35px; overflow: hidden; background: #141416; color: var(--on-cam); }
+.screen svg.view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.scene { transition: transform 1.6s cubic-bezier(.4, 0, .2, 1); }
+.is-moved .scene { transform: translateX(42px); }
+.ring-fill { opacity: 0; transition: opacity .3s; }
+.t1 .ring-fill { opacity: 1; }
+.ring-line { transition: opacity .3s; }
+.t1 .ring-line { opacity: 0; }
+.outline { opacity: 0; transition: opacity .4s; }
+.is-steps .outline { opacity: 1; }
+.guide { opacity: 0; transition: opacity .4s; }
+.is-steps .guide { opacity: 1; }
+.t1 .guide-dot { opacity: 0; }
+
+.pill-row { position: absolute; left: 12px; right: 12px; bottom: 132px; display: flex; justify-content: space-between; align-items: center; font-size: 10px; }
+.pill { background: var(--glass); border-radius: 999px; padding: 5px 9px; display: inline-flex; align-items: center; gap: 5px; }
+.pill.auto { background: #1F9D55; }
+.zoom { display: inline-flex; gap: 2px; background: var(--glass); border-radius: 999px; padding: 3px; }
+.zoom b { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-weight: 600; }
+.zoom b.on { background: #fff; color: #000; }
+
+.card {
+  position: absolute; left: 10px; right: 10px; bottom: 74px; min-height: 54px;
+  background: var(--glass); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  border-radius: 14px; padding: 9px 11px; font-size: 11px; line-height: 1.35;
+}
+.card .head { color: rgba(255, 255, 255, 0.7); font-size: 9.5px; margin-bottom: 6px; display: flex; justify-content: space-between; }
+.card .detect { display: flex; align-items: center; gap: 8px; }
+.card .detect b { color: #FF6257; font-size: 12px; }
+.spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #FF6257; border-right-color: transparent; animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.card .steps, .card .head { display: none; }
+.is-steps .card .steps { display: grid; gap: 6px; }
+.is-steps .card .head { display: flex; }
+.is-steps .card .detect { display: none; }
+.step { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; align-items: start; }
+.num { width: 18px; height: 18px; border-radius: 50%; background: #D92D20; display: grid; place-items: center; font-size: 10px; font-weight: 700; transition: background .3s; }
+.num::after { content: attr(data-n); }
+.t1 .s1 .num, .t2 .s2 .num { background: #1F9D55; }
+.t1 .s1 .num::after, .t2 .s2 .num::after { content: "✓"; }
+.step strong { font-weight: 600; display: block; font-size: 11.5px; }
+.step small { display: flex; align-items: center; gap: 6px; color: rgba(255, 255, 255, 0.78); font-size: 9.5px; }
+.t1 .s1 strong, .t2 .s2 strong { color: rgba(255, 255, 255, 0.55); font-weight: 500; }
+.t1 .s1 small, .t2 .s2 small { display: none; }
+.s2 small { display: none; }
+.t1 .s2 small { display: flex; }
+.all-done { display: none; color: #3CC47C; font-weight: 700; font-size: 11.5px; }
+.done .all-done { display: block; }
+.tilt { width: 26px; height: 18px; flex: none; }
+.tilt .ph { transform-origin: 9px 16px; animation: rock 1.1s ease-in-out infinite alternate; }
+@keyframes rock { from { transform: rotate(0deg); } to { transform: rotate(32deg); } }
+
+.shutter-row { position: absolute; left: 0; right: 0; bottom: 14px; display: flex; justify-content: space-between; align-items: center; padding: 0 22px; }
+.thumb { width: 30px; height: 30px; border-radius: 8px; border: 2px solid rgba(255, 255, 255, 0.85); }
+.shutter { width: 52px; height: 52px; border-radius: 50%; border: 3px solid #fff; display: grid; place-items: center; position: relative; }
+.shutter::after { content: ""; width: 40px; height: 40px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.shoot .shutter::after { transform: scale(0.82); }
+.ringcount { position: absolute; inset: -6px; }
+.ringcount circle { stroke-dasharray: 182; stroke-dashoffset: 182; }
+.done .ringcount circle { transition: stroke-dashoffset .8s linear; stroke-dashoffset: 0; }
+.gear { width: 30px; height: 30px; border-radius: 50%; background: var(--glass); display: grid; place-items: center; }
+.flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+.shoot .flash { animation: flash .5s ease-out; }
+@keyframes flash { 0% { opacity: .9; } 100% { opacity: 0; } }
+.toast { position: absolute; top: 46px; left: 50%; transform: translateX(-50%); background: var(--glass); border-radius: 999px; padding: 6px 12px; font-size: 10.5px; white-space: nowrap; opacity: 0; transition: opacity .3s; }
+.saved .toast { opacity: 1; }
+.status { position: absolute; top: 12px; left: 22px; right: 22px; display: flex; justify-content: space-between; font-size: 10px; color: rgba(255, 255, 255, 0.85); font-variant-numeric: tabular-nums; }
+
+/* sections */
+section { padding-block: 88px; }
+.section-head { display: grid; gap: 12px; margin: 0 auto 36px; max-width: 40rem; text-align: center; justify-items: center; }
+.flow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; list-style: none; padding: 0; margin: 0; }
+.flow li { display: grid; gap: 10px; align-content: start; justify-items: center; text-align: center; min-width: 0; }
+.flow .head-row { display: flex; align-items: center; gap: 10px; }
+.flow .n { font-family: var(--font-mono); font-size: 2.1rem; line-height: 1; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
+.flow .icon { width: 26px; height: 26px; }
+.flow .icon * { stroke: var(--ink); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.flow p, .feat p { color: var(--muted); }
+.flow .tag { justify-self: center; font-size: 0.82rem; font-weight: 600; border-radius: 999px; padding: 3px 10px; background: var(--raised); }
+.tag.red { color: var(--off); }
+.tag.green { color: var(--right); }
+
+.feats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 36px 32px; }
+.feat { display: grid; gap: 8px; align-content: start; min-width: 0; padding: 22px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-card); }
+.feat svg { width: 30px; height: 30px; }
+.feat svg * { stroke: var(--ink); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+.words { display: grid; gap: 8px; justify-items: center; }
+.chips { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; max-width: 46rem; }
+.chip { background: var(--raised); border-radius: 999px; padding: 8px 14px; font-size: 0.95rem; font-weight: 500; }
+
+.food { width: 100%; border-collapse: collapse; font-size: 0.98rem; }
+.food th, .food td { text-align: left; padding: 12px 10px 12px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+.food th { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); font-weight: 400; }
+.food td:first-child { font-weight: 600; }
+.food svg { width: 16px; height: 16px; vertical-align: -3px; margin-right: 6px; flex: none; }
+.food svg * { stroke: var(--ink); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.table-box { overflow-x: auto; }
+
+.privacy { display: grid; gap: 8px; justify-items: center; }
+.privacy ul { max-width: 36rem; }
+.privacy ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 14px; }
+.privacy li { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 12px; }
+.privacy li svg { width: 22px; height: 22px; margin-top: 2px; }
+.privacy li svg * { stroke: var(--ink); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+.shots { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.shots figure { margin: 0; border: 1px solid var(--line); border-radius: var(--r-card); overflow: hidden; aspect-ratio: 3 / 4; background: var(--raised); }
+.shots img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.get { display: grid; gap: 18px; justify-items: center; text-align: center; padding-block: 24px 8px; }
+.get p { color: var(--muted); max-width: 38rem; }
+.install-box { display: grid; gap: 10px; text-align: left; max-width: 38rem; border: 1px solid var(--line); border-radius: var(--r-card); padding: 22px 24px; background: var(--bg); }
+.install-box .eyebrow { margin-bottom: 2px; }
+.install-steps { margin: 0; padding-left: 1.2em; display: grid; gap: 8px; }
+.install-steps b, .install-box b { font-weight: 600; }
+
+.cta-wrap { position: relative; display: inline-grid; justify-items: center; }
+.doodle { position: absolute; left: -58px; top: -14px; width: 52px; height: 38px; opacity: 0.55; }
+.doodle path { fill: none; stroke: var(--muted); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+@media (max-width: 860px) { .doodle { display: none; } }
+footer { padding-block: 36px 48px; color: var(--muted); font-family: var(--font-mono); font-size: 0.82rem; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; }
+
+@media (max-width: 860px) {
+  .hero { padding-block: 28px 32px; }
+  .flow, .feats { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+  .stage-grid { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+  .stage-text { justify-items: center; text-align: center; max-width: 30rem; }
+  .shots { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .top .meta { display: none; }
+  .phone { max-width: 270px; }
+  .live-step { font-size: 1rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-step .dot, .live-step .words { transition: none !important; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .scene, .ring-fill, .ring-line, .num, .outline, .guide { transition: none !important; }
+  .spin, .tilt .ph, .shoot .flash { animation: none !important; }
+}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="#top" aria-label="Compose Pro"><svg viewBox="0 0 1024 1024" aria-hidden="true"><rect width="1024" height="1024" fill="#1F1F1F"/><rect x="380" y="230" width="264" height="120" rx="36" fill="#fff"/><rect x="170" y="300" width="684" height="480" rx="96" fill="#fff"/><path d="M633,438.4A158,158 0 1,0 633,641.6" stroke="#1F1F1F" stroke-width="64" stroke-linecap="round" fill="none"/><circle cx="530" cy="540" r="94" fill="#2FA84F"/><path d="M486,540L516.8,568.6L574,511.4" stroke="#fff" stroke-width="24" stroke-linecap="round" stroke-linejoin="round" fill="none"/><circle cx="752" cy="380" r="26" fill="#2FA84F"/></svg>Compose Pro</a>
+    <span class="meta">Android · in testing</span>
+  </header>
+
+  <main id="top">
+    <div class="hero">
+      <span class="app-icon" style="overflow:hidden"><svg style="width:100%;height:100%;display:block" viewBox="0 0 1024 1024" aria-hidden="true"><rect width="1024" height="1024" fill="#1F1F1F"/><rect x="380" y="230" width="264" height="120" rx="36" fill="#fff"/><rect x="170" y="300" width="684" height="480" rx="96" fill="#fff"/><path d="M633,438.4A158,158 0 1,0 633,641.6" stroke="#1F1F1F" stroke-width="64" stroke-linecap="round" fill="none"/><circle cx="530" cy="540" r="94" fill="#2FA84F"/><path d="M486,540L516.8,568.6L574,511.4" stroke="#fff" stroke-width="24" stroke-linecap="round" stroke-linejoin="round" fill="none"/><circle cx="752" cy="380" r="26" fill="#2FA84F"/></svg></span>
+      <h1>A better photo,<br>one step at a time.</h1>
+      <p class="live-step" id="liveStep" aria-live="off"><span class="dot" id="liveDot">1</span><span class="words" id="liveWords">Move a little left</span></p>
+      <p class="lede">Compose Pro looks at what your camera sees and tells you, in a few plain words, how to frame it. Each step turns green when you've done it.</p>
+      <span class="cta-wrap">
+        <svg class="doodle" viewBox="0 0 60 40" aria-hidden="true"><path d="M4,8 C20,4 34,16 48,11"/><path d="M40,5 L48,11 L42,19"/></svg>
+        <a class="btn btn-main" href="ComposePro.apk" download="ComposePro.apk">Download for Android</a>
+      </span>
+      <p class="small">Android 8 or newer · 40 MB · no account · <a href="#get">how to install</a></p>
+    </div>
+
+    <div class="stage">
+      <div class="stage-grid">
+        <div class="stage-text">
+          <p class="eyebrow">Live demo</p>
+          <p class="caption"><b>Point at your food.</b> It finds the plate, gives you the steps, and checks them as you go.</p>
+        </div>
+        <div class="phone-col">
+        <div class="phone is-steps" id="demo" role="img" aria-label="Compose Pro on a phone: a plate of food, two steps that turn from red to green, then the photo is taken.">
+          <div class="screen">
+            <svg class="view" viewBox="0 0 280 620" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+              <defs>
+                <radialGradient id="table" cx="50%" cy="45%" r="75%"><stop offset="0" stop-color="#2E2E31"/><stop offset="1" stop-color="#161618"/></radialGradient>
+                <radialGradient id="steel" cx="45%" cy="38%" r="70%"><stop offset="0" stop-color="#E2E4E8"/><stop offset=".7" stop-color="#A9AEB5"/><stop offset="1" stop-color="#80868E"/></radialGradient>
+                <radialGradient id="bowl" cx="40%" cy="35%" r="70%"><stop offset="0" stop-color="#D6D9DE"/><stop offset="1" stop-color="#8A9097"/></radialGradient>
+              </defs>
+              <rect width="280" height="620" fill="url(#table)"/>
+              <g class="scene">
+                <circle cx="98" cy="300" r="104" fill="url(#steel)"/>
+                <circle cx="98" cy="300" r="88" fill="none" stroke="#C3C7CD" stroke-width="2"/>
+                <ellipse cx="72" cy="262" rx="38" ry="28" fill="#F4F1EA"/>
+                <ellipse cx="78" cy="254" rx="20" ry="12" fill="#FFFDF8"/>
+                <circle cx="132" cy="268" r="30" fill="url(#bowl)"/>
+                <circle cx="132" cy="268" r="23" fill="#E4A12E"/>
+                <circle cx="126" cy="262" r="5" fill="#F2C35B"/>
+                <circle cx="118" cy="340" r="27" fill="url(#bowl)"/>
+                <circle cx="118" cy="340" r="20" fill="#8E3A1C"/>
+                <ellipse cx="66" cy="334" rx="30" ry="24" fill="#D7A35C"/>
+                <circle cx="58" cy="328" r="3" fill="#A8692F"/><circle cx="74" cy="340" r="2.5" fill="#A8692F"/>
+                <g class="outline" stroke="#fff" stroke-width="3" stroke-linecap="round" fill="none">
+                  <path d="M-6,206 v-12 h12 M190,194 h12 v12 M202,394 v12 h-12 M6,406 h-12 v-12"/>
+                </g>
+                <circle class="guide guide-dot" cx="98" cy="300" r="5" fill="#fff"/>
+              </g>
+              <g class="guide">
+                <line x1="93" y1="0" x2="93" y2="620" stroke="rgba(255,255,255,.28)"/><line x1="187" y1="0" x2="187" y2="620" stroke="rgba(255,255,255,.28)"/>
+                <line x1="0" y1="207" x2="280" y2="207" stroke="rgba(255,255,255,.28)"/><line x1="0" y1="413" x2="280" y2="413" stroke="rgba(255,255,255,.28)"/>
+                <circle class="ring-line" cx="140" cy="300" r="17" fill="rgba(28,28,30,.5)" stroke="#fff" stroke-width="2.5"/>
+                <g class="ring-fill"><circle cx="140" cy="300" r="17" fill="#1F9D55"/><path d="M133,300 l5,5 l9,-10" stroke="#fff" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g>
+              </g>
+            </svg>
+            <div class="status"><span>12:42</span><span>●●● 82%</span></div>
+            <div class="toast">✓ Saved to your photos</div>
+            <div class="pill-row">
+              <span class="pill">⚡ Auto</span>
+              <span class="pill auto">Ⓐ Auto shot</span>
+              <span class="zoom"><b class="on">1×</b><b>2×</b></span>
+            </div>
+            <div class="card">
+              <div class="detect"><span class="spin"></span><div><b>Detecting…</b><br>Hold the phone still for 3 seconds.</div></div>
+              <div class="head"><span>Compose Pro · Centre · <span id="count">0 of 2 done</span></span><span>↻ ✕</span></div>
+              <div class="steps">
+                <div class="step s1"><span class="num" data-n="1"></span><div><strong>Move a little left</strong><small>Until the dot is in the circle.</small></div></div>
+                <div class="step s2"><span class="num" data-n="2"></span><div><strong>Look at it at a slant</strong>
+                  <small><svg class="tilt" viewBox="0 0 26 18"><line x1="0" y1="17" x2="26" y2="17" stroke="rgba(255,255,255,.4)"/><rect x="19" y="10" width="5" height="7" rx="1" fill="rgba(255,255,255,.7)"/><g class="ph"><rect x="7.5" y="2" width="3" height="14" rx="1" fill="#fff"/><circle cx="11" cy="4" r="1.1" fill="#3CC47C"/></g></svg>Tip the top of the phone away from you ↓</small></div></div>
+                <div class="all-done">✓ All done. Take the photo.</div>
+              </div>
+            </div>
+            <div class="shutter-row">
+              <span class="thumb"></span>
+              <span class="shutter"><svg class="ringcount" viewBox="0 0 64 64"><circle cx="32" cy="32" r="29" fill="none" stroke="#3CC47C" stroke-width="3" transform="rotate(-90 32 32)"/></svg></span>
+              <span class="gear">⚙</span>
+            </div>
+            <div class="flash"></div>
+          </div>
+        </div>
+        </div>
+      </div>
+    </div>
+
+    <section id="how" aria-labelledby="how-h">
+      <div class="section-head">
+        <p class="eyebrow">How it works</p>
+        <h2 id="how-h">Three things happen, in this order</h2>
+      </div>
+      <ol class="flow">
+        <li>
+          <span class="head-row"><span class="n">1</span><svg class="icon" viewBox="0 0 26 26" aria-hidden="true"><circle cx="13" cy="13" r="9.5"/><path d="M13,7.5 V13 L17,15.5"/></svg></span>
+          <span class="tag red">Detecting…</span>
+          <h3>Hold still for 3 seconds</h3>
+          <p>The app finds what you're pointing at and outlines it. It doesn't need a list of objects: a thali, a mug, a scooty and a sofa with a frame above it all work.</p>
+        </li>
+        <li>
+          <span class="head-row"><span class="n">2</span><svg class="icon" viewBox="0 0 26 26" aria-hidden="true"><path d="M10,8 h13 M10,13 h13 M10,18 h9"/><path d="M3,7.3 l1.6,1.7 l2.6,-3.2"/></svg></span>
+          <span class="tag green">Red number → green ✓</span>
+          <h3>Do the steps</h3>
+          <p>One to three short steps, most important first. The phone checks most of them itself: its tilt sensor, where the subject sits and how big it is. Can't do one? Tap it to tick it off.</p>
+        </li>
+        <li>
+          <span class="head-row"><span class="n">3</span><svg class="icon" viewBox="0 0 26 26" aria-hidden="true"><rect x="3" y="7" width="20" height="14" rx="3"/><circle cx="13" cy="14" r="4.5"/><path d="M9,7 l1.4,-2.4 h5.2 L17,7"/></svg></span>
+          <span class="tag">Shutter or Auto shot</span>
+          <h3>Take the photo</h3>
+          <p>Tap the shutter whenever you like. Or turn on Auto shot: when every step is green and you hold still, it takes the photo for you in about a second.</p>
+        </li>
+      </ol>
+    </section>
+
+    <section id="what" aria-labelledby="what-h">
+      <div class="section-head">
+        <p class="eyebrow">What it does</p>
+        <h2 id="what-h">A photographer's eye, in plain words</h2>
+      </div>
+      <div class="feats">
+        <div class="feat">
+          <svg viewBox="0 0 30 30" aria-hidden="true"><path d="M4,10 V4 H10 M20,4 H26 V10 M26,20 V26 H20 M10,26 H4 V20"/><circle cx="15" cy="15" r="5"/></svg>
+          <h3>Finds what you're shooting</h3>
+          <p>It outlines the main thing in view by itself. Things that belong together, like two chairs and the painting above them, are framed as one group.</p>
+        </div>
+        <div class="feat">
+          <svg viewBox="0 0 30 30" aria-hidden="true"><circle cx="9" cy="9" r="4"/><path d="M16,9 H26 M16,21 H26"/><circle cx="9" cy="21" r="4"/><path d="M7.2,21 l1.4,1.4 l2.6,-2.8"/></svg>
+          <h3>Steps you can follow</h3>
+          <p>Every step comes from one short list of phrases, so the same picture always gets the same words. A small moving picture shows which way to tip the phone.</p>
+        </div>
+        <div class="feat">
+          <svg viewBox="0 0 30 30" aria-hidden="true"><circle cx="15" cy="15" r="9"/><circle cx="15" cy="15" r="2.5"/><path d="M15,2 V6 M15,24 V28 M2,15 H6 M24,15 H28"/></svg>
+          <h3>Checks your work</h3>
+          <p>A dot on your subject and a circle where it should go. Move until the dot is in the circle and the step turns green. No guessing whether you did it right.</p>
+        </div>
+        <div class="feat">
+          <svg viewBox="0 0 30 30" aria-hidden="true"><path d="M3,15 H27"/><path d="M6,11 V19 M24,11 V19"/><circle cx="15" cy="15" r="2"/></svg>
+          <h3>Keeps it straight</h3>
+          <p>A level line follows the object's own edges, like a table or a laptop, so it looks straight in the photo even when the table itself isn't level.</p>
+        </div>
+        <div class="feat">
+          <svg viewBox="0 0 30 30" aria-hidden="true"><circle cx="13" cy="17" r="3"/><path d="M18,12 a8,8 0 0 1 0,10"/><path d="M22,8 a14,14 0 0 1 0,18"/></svg>
+          <h3>Auto focus on tap</h3>
+          <p>Tap anywhere on the screen and it locks focus there. Useful when the plate isn't centred, or something in front keeps stealing the camera's attention.</p>
+        </div>
+        <div class="feat">
+          <svg viewBox="0 0 30 30" aria-hidden="true"><rect x="3" y="8" width="24" height="14" rx="3"/><path d="M21,4 a8,8 0 0 1 5,4 M24,8 h3 V5"/></svg>
+          <h3>Works sideways too</h3>
+          <p>Turn the phone for something long and the steps turn with you. "Left" means your left, and the photo is saved the right way up.</p>
+        </div>
+      </div>
+    </section>
+
+    <section aria-labelledby="words-h">
+      <div class="words">
+        <div class="section-head" style="margin-bottom:12px">
+          <p class="eyebrow">The words it uses</p>
+          <h2 id="words-h">Short phrases you can act on</h2>
+          <p class="lede">The AI photographer picks the step; the app writes it, always from this list. No "rule of thirds", no "adjust exposure", and no "tilt" with no direction.</p>
+        </div>
+        <div class="chips" aria-label="Every step the app can give">
+          <span class="chip">Look down from above</span>
+          <span class="chip">Look at it at a slant</span>
+          <span class="chip">Look at it straight on</span>
+          <span class="chip">Move closer</span>
+          <span class="chip">Move back</span>
+          <span class="chip">Move a little left</span>
+          <span class="chip">Move a little right</span>
+          <span class="chip">Hold the phone higher</span>
+          <span class="chip">Hold the phone lower</span>
+          <span class="chip">Tap 2×</span>
+          <span class="chip">Tap 1×</span>
+          <span class="chip">Turn to face the light</span>
+          <span class="chip">Remove the napkin</span>
+        </div>
+      </div>
+    </section>
+
+    <section aria-labelledby="food-h">
+      <div class="section-head">
+        <p class="eyebrow">Food first</p>
+        <h2 id="food-h">It knows how each dish wants to be seen</h2>
+        <p class="lede">Compose Pro started with food, where good framing is easiest to see. These are the angles it asks for.</p>
+      </div>
+      <div class="table-box">
+        <table class="food">
+          <thead><tr><th scope="col">What's on the table</th><th scope="col">Angle it asks for</th><th scope="col">Why</th></tr></thead>
+          <tbody>
+            <tr><td>A thali, pizza, a flat lay</td><td><svg viewBox="0 0 22 22" aria-hidden="true"><ellipse cx="11" cy="11" rx="9" ry="4"/><ellipse cx="11" cy="11" rx="4" ry="1.8"/></svg>Look down from above</td><td>Every dish shows at once, nothing hides behind anything else.</td></tr>
+            <tr><td>Dal, noodles, a cake slice</td><td><svg viewBox="0 0 22 22" aria-hidden="true"><path d="M3,19 L19,19 L19,7 Z"/></svg>Look at it at a slant (about 45°)</td><td>You see the top, the side and the depth, like sitting at the table.</td></tr>
+            <tr><td>Chai, lassi, a bottle</td><td><svg viewBox="0 0 22 22" aria-hidden="true"><rect x="7" y="3" width="8" height="16" rx="2"/></svg>Look at it straight on</td><td>Tall things look their real shape from their own height.</td></tr>
+            <tr><td>A busy table behind it</td><td><svg viewBox="0 0 22 22" aria-hidden="true"><path d="M5,5 L17,17 M17,5 L5,17"/></svg>Remove the worst thing, or look down more</td><td>Jars and extra bowls pull the eye away from the food.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="privacy" aria-labelledby="privacy-h">
+      <div class="privacy">
+        <div class="section-head" style="margin-bottom:12px">
+          <p class="eyebrow">Privacy</p>
+          <h2 id="privacy-h">Your photos stay on your phone</h2>
+        </div>
+        <ul>
+          <li><svg viewBox="0 0 22 22" aria-hidden="true"><rect x="5" y="2" width="12" height="18" rx="3"/><path d="M9,16 h4"/></svg><p>Photos are saved to your phone's own gallery. Compose Pro has no account, no sign-in and no cloud album.</p></li>
+          <li><svg viewBox="0 0 22 22" aria-hidden="true"><path d="M3,11 a8,8 0 1 1 16,0 a8,8 0 1 1 -16,0"/><path d="M11,7 V11 L14,13"/></svg><p>Only while the camera is open, the camera view is sent to Google Gemini to suggest the steps. Nothing else leaves the phone.</p></li>
+          <li><svg viewBox="0 0 22 22" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="M7,11 l3,3 l5,-6"/></svg><p>Finding the subject, the level line and the step checks all run on the phone itself.</p></li>
+        </ul>
+      </div>
+    </section>
+
+    <section aria-labelledby="shots-h">
+      <div class="section-head">
+        <p class="eyebrow">From testing</p>
+        <h2 id="shots-h">A few shots guided by Compose Pro</h2>
+      </div>
+      <div class="shots">
+        <figure><img src="compose-pro-shots/shot-plants.jpg" alt="Terracotta plant pots in a row, framed straight on."></figure>
+        <figure><img src="compose-pro-shots/shot-bicycle.jpg" alt="A white bicycle against a patterned wall, framed at a slant."></figure>
+        <figure><img src="compose-pro-shots/shot-desert-rose.jpg" alt="A potted desert rose in bloom, framed at a slant."></figure>
+        <figure><img src="compose-pro-shots/shot-garden-path.jpg" alt="A garden path between two young trees."></figure>
+      </div>
+    </section>
+
+    <section id="get" aria-labelledby="get-h">
+      <div class="get">
+        <span class="app-icon" style="width:64px;height:64px;border-radius:16px;overflow:hidden"><svg style="width:100%;height:100%;display:block" viewBox="0 0 1024 1024" aria-hidden="true"><rect width="1024" height="1024" fill="#1F1F1F"/><rect x="380" y="230" width="264" height="120" rx="36" fill="#fff"/><rect x="170" y="300" width="684" height="480" rx="96" fill="#fff"/><path d="M633,438.4A158,158 0 1,0 633,641.6" stroke="#1F1F1F" stroke-width="64" stroke-linecap="round" fill="none"/><circle cx="530" cy="540" r="94" fill="#2FA84F"/><path d="M486,540L516.8,568.6L574,511.4" stroke="#fff" stroke-width="24" stroke-linecap="round" stroke-linejoin="round" fill="none"/><circle cx="752" cy="380" r="26" fill="#2FA84F"/></svg></span>
+        <p class="eyebrow">Get it</p>
+        <h2 id="get-h">Compose Pro is in testing</h2>
+        <a class="btn btn-main" href="ComposePro.apk" download="ComposePro.apk">Download for Android</a>
+        <p class="small">Android 8 or newer · 40 MB · test version</p>
+        <div class="install-box">
+          <p class="eyebrow">Install</p>
+          <ol class="install-steps">
+            <li>Tap <b>Download for Android</b> on your phone and open the file when it's done.</li>
+            <li>If the phone asks, let your browser install apps (<b>Settings → Allow from this source</b>), then go back and tap <b>Install</b>.</li>
+            <li>The app isn't on the Play Store yet, so Play Protect may warn you. Tap <b>More details → Install anyway</b>.</li>
+          </ol>
+          <p>A new version installs over the old one. Download it again from this page.</p>
+          <p>Trying it on food? Send the team a screenshot of the steps and the photo you took. That's how the next version gets better.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>Compose Pro · a Product Anatomy student project · 2026</span>
+    <span>Android · test version</span>
+  </footer>
+</div>
+
+<script>
+(() => {
+  const phone = document.getElementById('demo');
+  const count = document.getElementById('count');
+  if (!phone) return;
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const set = (cls, label) => { phone.className = 'phone ' + cls; if (label) count.textContent = label; };
+  if (reduce) { set('is-steps is-moved t1 t2 done', '2 of 2 done'); return; }
+  // One loop of the app: detect, steps appear, the plate slides into the circle, both steps tick, Auto shot fires.
+  const timeline = [
+    [0, '', ''],
+    [2600, 'is-steps', '0 of 2 done'],
+    [3600, 'is-steps is-moved', '0 of 2 done'],
+    [5400, 'is-steps is-moved t1', '1 of 2 done'],
+    [7200, 'is-steps is-moved t1 t2', '2 of 2 done'],
+    [7600, 'is-steps is-moved t1 t2 done', '2 of 2 done'],
+    [8500, 'is-steps is-moved t1 t2 done shoot', '2 of 2 done'],
+    [9100, 'is-steps is-moved t1 t2 done saved', '2 of 2 done'],
+  ];
+  const LOOP = 11500;
+  let timers = [];
+  const run = () => {
+    timers.forEach(clearTimeout); timers = [];
+    timeline.forEach(([t, cls, label]) => timers.push(setTimeout(() => set(cls, label), t)));
+    timers.push(setTimeout(run, LOOP));
+  };
+  run();
+})();
+
+// The live step under the headline: a red number, then a green tick, then the next step (the app's own words).
+(() => {
+  const box = document.getElementById('liveStep'), dot = document.getElementById('liveDot'), words = document.getElementById('liveWords');
+  if (!box) return;
+  const steps = ['Move a little left', 'Look at it at a slant', 'Remove the napkin', 'Move back', 'Tap 2×', 'Turn to face the light'];
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) { box.classList.add('ok'); dot.textContent = '✓'; return; }
+  let i = 0;
+  const show = () => {
+    box.classList.remove('ok'); dot.textContent = String((i % 3) + 1); words.textContent = steps[i % steps.length]; box.classList.remove('swap');
+    setTimeout(() => { box.classList.add('ok'); dot.textContent = '✓'; }, 1500);
+    setTimeout(() => { box.classList.add('swap'); }, 2600);
+    setTimeout(() => { i++; show(); }, 2900);
+  };
+  show();
+})();
+</script>
+
+</body></html>
