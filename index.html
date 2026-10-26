@@ -5,6 +5,13 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap">
+<script>
+// A photo that isn't uploaded yet hides itself; with none left, the whole section hides.
+function shotMissing(img) {
+  const box = img.closest('.shots'); img.closest('figure').remove();
+  if (box && !box.querySelector('figure')) document.getElementById('shots').hidden = true;
+}
+</script>
 </head><body>
 <style>
 /* Layout: a live camera screen beside plain words; sections read top to bottom like the app's own flow (look, steps, shoot). */
@@ -454,16 +461,16 @@ footer { padding-block: 36px 48px; color: var(--muted); font-family: var(--font-
       </div>
     </section>
 
-    <section aria-labelledby="shots-h">
+    <section id="shots" aria-labelledby="shots-h">
       <div class="section-head">
         <p class="eyebrow">From testing</p>
         <h2 id="shots-h">A few shots guided by Compose Pro</h2>
       </div>
       <div class="shots">
-        <figure><img src="compose-pro-shots/shot-plants.jpg" alt="Terracotta plant pots in a row, framed straight on."></figure>
-        <figure><img src="compose-pro-shots/shot-bicycle.jpg" alt="A white bicycle against a patterned wall, framed at a slant."></figure>
-        <figure><img src="compose-pro-shots/shot-desert-rose.jpg" alt="A potted desert rose in bloom, framed at a slant."></figure>
-        <figure><img src="compose-pro-shots/shot-garden-path.jpg" alt="A garden path between two young trees."></figure>
+        <figure><img onerror="shotMissing(this)" src="compose-pro-shots/shot-plants.jpg" alt="Terracotta plant pots in a row, framed straight on."></figure>
+        <figure><img onerror="shotMissing(this)" src="compose-pro-shots/shot-bicycle.jpg" alt="A white bicycle against a patterned wall, framed at a slant."></figure>
+        <figure><img onerror="shotMissing(this)" src="compose-pro-shots/shot-desert-rose.jpg" alt="A potted desert rose in bloom, framed at a slant."></figure>
+        <figure><img onerror="shotMissing(this)" src="compose-pro-shots/shot-garden-path.jpg" alt="A garden path between two young trees."></figure>
       </div>
     </section>
 
